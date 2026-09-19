@@ -11,6 +11,7 @@ from app.models.identity import (
 )
 from app.models.inventory import (
     AssetField,
+    ClassificationOverride,
     Connector,
     DataAsset,
     DataFlow,
@@ -31,6 +32,7 @@ __all__ = [
     "AssetField",
     "AuditEvent",
     "BreachIncident",
+    "ClassificationOverride",
     "Connector",
     "Control",
     "ControlAssessment",

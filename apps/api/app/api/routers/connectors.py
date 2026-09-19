@@ -109,15 +109,25 @@ async def upload_file_connector(
     ctx: AuthContext = Depends(require_capability(MANAGE_CONNECTORS)),
     db: Session = Depends(get_db),
 ) -> ConnectorOut:
-    """Create a CSV/JSON connector from an uploaded file (validated + size-limited)."""
+    """Create a CSV/JSON/codebase connector from an uploaded file (validated + size-limited).
+
+    A .zip upload is treated as an application repository and scanned as source
+    code (static data-model extraction), feeding the same discovery pipeline.
+    """
     filename = (file.filename or "upload").strip()
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-    if ext not in {"csv", "json"}:
-        raise ValidationError("Only .csv and .json uploads are supported for scanning.")
+    if ext not in {"csv", "json", "zip"}:
+        raise ValidationError(
+            "Only .csv, .json, and .zip (codebase) uploads are supported for scanning."
+        )
     content = await file.read()
     if len(content) > settings.max_upload_bytes:
         raise ValidationError("File exceeds the 25 MB upload limit.")
-    conn_type = ConnectorType.CSV.value if ext == "csv" else ConnectorType.JSON.value
+    conn_type = {
+        "csv": ConnectorType.CSV.value,
+        "json": ConnectorType.JSON.value,
+        "zip": ConnectorType.CODEBASE.value,
+    }[ext]
     config = {"filename": filename, "content_b64": base64.b64encode(content).decode("ascii")}
     connector = Connector(
         organization_id=ctx.organization_id,
@@ -246,6 +256,7 @@ class ScanOut(BaseModel):
     findings_created: int
     changes: dict | None
     error_message: str | None
+    error_type: str | None
     created_at: datetime
     completed_at: datetime | None
 
@@ -267,6 +278,7 @@ def get_scan(
         findings_created=scan.findings_created,
         changes=scan.changes,
         error_message=scan.error_message,
+        error_type=scan.error_type,
         created_at=scan.created_at,
         completed_at=scan.completed_at,
     )
@@ -293,6 +305,7 @@ def list_scans(
             findings_created=s.findings_created,
             changes=s.changes,
             error_message=s.error_message,
+            error_type=s.error_type,
             created_at=s.created_at,
             completed_at=s.completed_at,
         )

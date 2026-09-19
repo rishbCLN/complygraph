@@ -49,3 +49,72 @@ def test_none_and_empty_pass_through():
 def test_plain_text_without_pii_is_unchanged():
     text = "The control assessment reported a missing retention policy."
     assert sanitize_text(text) == text
+
+
+def test_investigation_input_never_leaks_raw_pii():
+    """End-to-end trust-boundary test: the assembled AI payload must contain no
+    raw PII even when the finding text and field data carry it."""
+    import json
+    import uuid as _uuid
+
+    from app.controls.risk import RiskInputs
+    from app.core.database import SessionLocal
+    from app.models.identity import Organization
+    from app.models.inventory import AssetField, DataAsset
+    from app.services.ai_service import build_investigation_input
+    from app.services.findings_service import upsert_finding
+
+    raw_email = "aarav.sharma@example.com"
+    raw_phone = "+919876543210"
+
+    db = SessionLocal()
+    try:
+        org = Organization(name="LeakTest", slug=f"leak-{_uuid.uuid4().hex[:8]}")
+        db.add(org)
+        db.flush()
+
+        asset = DataAsset(
+            organization_id=org.id,
+            name="public.customers",
+            display_name="customers",
+            asset_type="TABLE",
+            classification="PERSONAL_DATA",
+            sensitivity_level=4,
+        )
+        db.add(asset)
+        db.flush()
+        # Even if masked_examples accidentally still carries a raw value, the
+        # sanitizer must scrub it before it reaches the model.
+        db.add(
+            AssetField(
+                asset_id=asset.id,
+                name="email",
+                classification="PERSONAL_DATA",
+                category="CONTACT",
+                confidence_band="HIGH",
+                masked_examples=raw_email,
+            )
+        )
+        db.flush()
+
+        finding = upsert_finding(
+            db,
+            organization_id=org.id,
+            finding_type="test:leak",
+            title=f"Customer {raw_email} flagged",
+            description=f"Contact at {raw_phone} regarding data.",
+            risk_inputs=RiskInputs(4, 3, 5, 2),
+            asset_id=asset.id,
+            source="test",
+        )
+        db.flush()
+
+        payload = build_investigation_input(db, org, finding)
+        blob = json.dumps(payload, default=str)
+
+        assert raw_email not in blob
+        assert raw_phone not in blob
+        assert "REDACTED" in blob
+    finally:
+        db.rollback()
+        db.close()

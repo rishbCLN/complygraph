@@ -106,6 +106,7 @@ class Scan(Base):
     findings_created: Mapped[int] = mapped_column(Integer, default=0)
     changes: Mapped[dict | None] = mapped_column(JSONB)
     error_message: Mapped[str | None] = mapped_column(Text)
+    error_type: Mapped[str | None] = mapped_column(String(40))  # CONNECTION|CONFIG|DATA|INTERNAL
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 

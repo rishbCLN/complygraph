@@ -18,11 +18,13 @@ from app.api.routers import (
     controls,
     dashboard,
     data_requests,
+    documents,
     evidence,
     findings,
     graph,
     incidents,
     organization,
+    overrides,
     processing_activities,
     regulations,
     reports,
@@ -53,5 +55,7 @@ for module in (
     reports,
     ai,
     search,
+    overrides,
+    documents,
 ):
     api_router.include_router(module.router)

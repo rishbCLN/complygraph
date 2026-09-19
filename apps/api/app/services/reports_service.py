@@ -80,17 +80,27 @@ def executive_report(db: Session, org) -> dict:
 
 def executive_report_pdf(db: Session, org) -> bytes:
     """Render the executive report as a PDF byte string."""
-    from reportlab.lib import colors  # noqa: PLC0415
-    from reportlab.lib.pagesizes import A4  # noqa: PLC0415
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle  # noqa: PLC0415
-    from reportlab.lib.units import mm  # noqa: PLC0415
-    from reportlab.platypus import (  # noqa: PLC0415
-        Paragraph,
-        SimpleDocTemplate,
-        Spacer,
-        Table,
-        TableStyle,
-    )
+    try:
+        from reportlab.lib import colors  # noqa: PLC0415
+        from reportlab.lib.pagesizes import A4  # noqa: PLC0415
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle  # noqa: PLC0415
+        from reportlab.lib.units import mm  # noqa: PLC0415
+        from reportlab.platypus import (  # noqa: PLC0415
+            Paragraph,
+            SimpleDocTemplate,
+            Spacer,
+            Table,
+            TableStyle,
+        )
+    except ImportError as exc:  # pragma: no cover - depends on optional dependency
+        from app.core.errors import AppError
+
+        raise AppError(
+            "PDF export is unavailable because the 'reportlab' dependency is not installed. "
+            "Use the JSON executive report instead, or install reportlab.",
+            code="PDF_UNAVAILABLE",
+            status_code=503,
+        ) from exc
 
     data = executive_report(db, org)
     buffer = io.BytesIO()

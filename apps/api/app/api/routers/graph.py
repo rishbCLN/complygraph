@@ -31,3 +31,12 @@ def get_asset_graph(
 ) -> dict:
     """Return the neighborhood graph for a single asset."""
     return graph_service.asset_graph(db, ctx.organization_id, asset_id)
+
+
+@router.get("/control")
+def get_control_graph(
+    ctx: AuthContext = Depends(get_current_context),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Return the control-overlay graph linking controls, evidence, and findings."""
+    return graph_service.control_graph(db, ctx.organization_id)

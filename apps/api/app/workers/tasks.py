@@ -24,3 +24,65 @@ def run_scan_task(scan_id: str) -> dict:
         }
     finally:
         db.close()
+
+
+@celery_app.task(name="complygraph.scheduled_rescans")
+def scheduled_rescans_task() -> dict:
+    """Enqueue rescans for connectors that have gone stale.
+
+    Runs on the celery-beat cadence. A connector is eligible when it has never
+    been scanned or its last scan is older than ``scheduled_rescan_min_age_hours``
+    and it has no scan currently running. Continuous monitoring is what turns a
+    one-off audit into ongoing DPDP compliance evidence.
+    """
+    from datetime import timedelta
+
+    from sqlalchemy import or_, select
+
+    from app.core.config import settings
+    from app.core.database import utcnow
+    from app.core.enums import ScanStatus
+    from app.models.findings import Scan
+    from app.models.inventory import Connector
+
+    if not settings.scheduled_rescan_enabled:
+        return {"enqueued": 0, "reason": "disabled"}
+
+    cutoff = utcnow() - timedelta(hours=settings.scheduled_rescan_min_age_hours)
+    enqueued: list[str] = []
+
+    db = SessionLocal()
+    try:
+        connectors = db.scalars(
+            select(Connector).where(
+                Connector.status == "CONFIGURED",
+                or_(Connector.last_scan_at.is_(None), Connector.last_scan_at < cutoff),
+            )
+        )
+        for connector in connectors:
+            running = db.scalar(
+                select(Scan).where(
+                    Scan.connector_id == connector.id,
+                    Scan.status.in_([ScanStatus.RUNNING.value, ScanStatus.QUEUED.value]),
+                )
+            )
+            if running is not None:
+                continue
+            scan = Scan(
+                organization_id=connector.organization_id,
+                connector_id=connector.id,
+                status=ScanStatus.QUEUED.value,
+                stage="Queued",
+                progress=0,
+                created_at=utcnow(),
+            )
+            db.add(scan)
+            db.flush()
+            scan_id = str(scan.id)
+            db.commit()
+            run_scan_task.delay(scan_id)
+            enqueued.append(scan_id)
+    finally:
+        db.close()
+
+    return {"enqueued": len(enqueued), "scan_ids": enqueued}

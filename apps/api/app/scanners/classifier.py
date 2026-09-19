@@ -215,7 +215,7 @@ def classify_field(sample: FieldSample) -> ClassificationResult:
     if _is_metadata_name(sample.name) and pattern_score < 0.5 and name_score < 0.7:
         classification = Classification.OPERATIONAL_METADATA.value
         category = DataCategory.NON_PERSONAL.value
-        confidence = max(confidence, round(0.10 * type_score + 0.8, 3)) if False else max(confidence, 0.6)
+        confidence = max(confidence, 0.6)
     elif confidence >= 0.65 or (name_cat and name_score >= 0.85):
         if category in _SENSITIVE_CATEGORIES:
             classification = Classification.SENSITIVE_PERSONAL_DATA.value

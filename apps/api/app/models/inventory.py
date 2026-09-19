@@ -128,6 +128,32 @@ class ProcessingActivity(Base, TimestampMixin):
     has_consent: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
+class ClassificationOverride(Base, TimestampMixin):
+    """Analyst feedback that overrides the automatic classifier for a field.
+
+    Matching is by normalized field name, optionally scoped to a specific asset
+    (by logical name). Applied during scans so confirmed/corrected classifications
+    persist across re-scans, forming the classifier feedback loop.
+    """
+
+    __tablename__ = "classification_overrides"
+    __table_args__ = (
+        Index("ix_overrides_org", "organization_id"),
+        Index("ix_overrides_field", "field_name"),
+    )
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    field_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    asset_name: Mapped[str | None] = mapped_column(String(255))  # None = applies org-wide
+    classification: Mapped[str] = mapped_column(String(60), nullable=False)
+    category: Mapped[str] = mapped_column(String(60), default="UNKNOWN")
+    note: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(GUID())
+
+
 class DataFlow(Base, TimestampMixin):
     __tablename__ = "data_flows"
     __table_args__ = (

@@ -24,6 +24,7 @@ class ConnectorType(str, Enum):
     CSV = "CSV"
     JSON = "JSON"
     DEMO = "DEMO"
+    CODEBASE = "CODEBASE"
 
 
 class ConnectorStatus(str, Enum):

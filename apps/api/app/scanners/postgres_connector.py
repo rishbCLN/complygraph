@@ -12,6 +12,7 @@ from sqlalchemy import create_engine, inspect, text
 
 from app.core.enums import AssetType
 from app.scanners.base import BaseConnector, DiscoveredAsset, DiscoveredField
+from app.scanners.net_safety import assert_safe_dsn
 
 # Schemas we never inspect.
 _SYSTEM_SCHEMAS = {"pg_catalog", "information_schema", "pg_toast"}
@@ -23,6 +24,8 @@ class PostgresConnector(BaseConnector):
         self.max_sample_rows = min(sample_rows, 100)
 
     def _engine(self):
+        # SSRF guard: reject internal/private targets when configured to do so.
+        assert_safe_dsn(self._dsn)
         # Read-only intent; short timeouts to avoid hanging the worker.
         return create_engine(
             self._dsn,

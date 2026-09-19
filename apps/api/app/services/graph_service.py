@@ -13,7 +13,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.enums import AssetType, Classification
+from app.models.evidence import ControlEvidence, Evidence
+from app.models.findings import Finding
 from app.models.inventory import DataAsset, DataFlow, Vendor
+from app.models.regulatory import Control, ControlAssessment
 
 _PERSONAL = {Classification.PERSONAL_DATA.value, Classification.SENSITIVE_PERSONAL_DATA.value}
 
@@ -114,6 +117,116 @@ def data_graph(db: Session, org_id: uuid.UUID) -> dict:
             "vendors": len(referenced_vendor_ids),
             "flows": len(edges),
             "cross_border_flows": sum(1 for e in edges if e["cross_border"]),
+        },
+    }
+
+
+def control_graph(db: Session, org_id: uuid.UUID) -> dict:
+    """Control-overlay graph: controls linked to their evidence and findings.
+
+    Answers "why is this control in this state?" visually by connecting each
+    control to the evidence that supports it and the findings it raised.
+    """
+    controls = list(db.scalars(select(Control)))
+
+    # Latest assessment status per control for this org.
+    status_by_control: dict[uuid.UUID, tuple[str, float]] = {}
+    for a in db.scalars(
+        select(ControlAssessment)
+        .where(ControlAssessment.organization_id == org_id)
+        .order_by(ControlAssessment.created_at.desc())
+    ):
+        status_by_control.setdefault(a.control_id, (a.status, a.score))
+
+    nodes: list[dict] = []
+    edges: list[dict] = []
+
+    for c in controls:
+        status, score = status_by_control.get(c.id, ("NO_EVIDENCE", 0.0))
+        nodes.append(
+            {
+                "id": f"control:{c.id}",
+                "kind": "CONTROL",
+                "type": "control",
+                "label": c.code,
+                "title": c.title,
+                "category": c.category,
+                "status": status,
+                "score": score,
+            }
+        )
+
+    # Control -> Evidence edges (+ evidence nodes).
+    ev_rows = db.execute(
+        select(Control.id, Evidence, ControlEvidence.relation_type)
+        .join(ControlEvidence, ControlEvidence.control_id == Control.id)
+        .join(Evidence, Evidence.id == ControlEvidence.evidence_id)
+        .where(Evidence.organization_id == org_id)
+    ).all()
+    seen_evidence: set[uuid.UUID] = set()
+    for control_id, ev, relation in ev_rows:
+        if ev.id not in seen_evidence:
+            seen_evidence.add(ev.id)
+            nodes.append(
+                {
+                    "id": f"evidence:{ev.id}",
+                    "kind": "EVIDENCE",
+                    "type": "evidence",
+                    "label": ev.name,
+                    "evidence_type": ev.type,
+                    "status": ev.status,
+                }
+            )
+        edges.append(
+            {
+                "id": f"ce:{control_id}:{ev.id}",
+                "source": f"control:{control_id}",
+                "target": f"evidence:{ev.id}",
+                "relation": relation or "SUPPORTS",
+            }
+        )
+
+    # Control -> Finding edges (+ finding nodes).
+    findings = list(
+        db.scalars(
+            select(Finding).where(
+                Finding.organization_id == org_id, Finding.control_id.is_not(None)
+            )
+        )
+    )
+    for f in findings:
+        nodes.append(
+            {
+                "id": f"finding:{f.id}",
+                "kind": "FINDING",
+                "type": "finding",
+                "label": f.title,
+                "severity": f.severity,
+                "risk_score": f.risk_score,
+                "status": f.status,
+            }
+        )
+        edges.append(
+            {
+                "id": f"cf:{f.control_id}:{f.id}",
+                "source": f"control:{f.control_id}",
+                "target": f"finding:{f.id}",
+                "relation": "RAISED",
+            }
+        )
+
+    status_counts: dict[str, int] = {}
+    for status, _ in status_by_control.values():
+        status_counts[status] = status_counts.get(status, 0) + 1
+
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "stats": {
+            "controls": len(controls),
+            "evidence": len(seen_evidence),
+            "findings": len(findings),
+            "status_counts": status_counts,
         },
     }
 

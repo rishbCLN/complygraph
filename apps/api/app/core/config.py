@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     celery_broker_url: str = "redis://localhost:6379/1"
     celery_result_backend: str = "redis://localhost:6379/2"
 
+    # Scheduled rescans (celery-beat). Set interval to 0 to disable.
+    scheduled_rescan_enabled: bool = True
+    scheduled_rescan_interval_hours: int = 24
+    scheduled_rescan_min_age_hours: int = 20  # only rescan connectors idle at least this long
+
     # Security
     secret_key: str = "dev-secret-key-change-me"
     app_encryption_key: str = "dev-encryption-key-change-me-0123456789abcdefABCDEF="
@@ -44,6 +49,11 @@ class Settings(BaseSettings):
     max_upload_bytes: int = 25 * 1024 * 1024  # 25 MB
     storage_dir: str = "/data/storage"
     allowed_upload_extensions: str = "csv,json,pdf,txt"
+
+    # Scanner network safety (SSRF protection).
+    # When False (recommended in production), connectors may not target loopback,
+    # private, link-local, or otherwise-reserved IP addresses.
+    allow_private_scan_targets: bool = True
 
     # AI
     anthropic_api_key: str = ""
@@ -69,6 +79,29 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment.lower() in {"production", "prod"}
+
+    # Values that must never be used in production.
+    _DEV_SECRET_KEY = "dev-secret-key-change-me"
+    _DEV_ENCRYPTION_KEY = "dev-encryption-key-change-me-0123456789abcdefABCDEF="
+
+    def validate_production_safety(self) -> list[str]:
+        """Return a list of fatal misconfigurations for a production deployment.
+
+        Empty list means safe. Callers (startup) should refuse to boot if non-empty.
+        """
+        problems: list[str] = []
+        if not self.is_production:
+            return problems
+        if self.secret_key == self._DEV_SECRET_KEY:
+            problems.append("SECRET_KEY is still the development default.")
+        if self.app_encryption_key == self._DEV_ENCRYPTION_KEY:
+            problems.append("APP_ENCRYPTION_KEY is still the development default.")
+        if self.allow_private_scan_targets:
+            problems.append(
+                "ALLOW_PRIVATE_SCAN_TARGETS is enabled; set it to false in production "
+                "to prevent connectors from reaching internal/private hosts (SSRF)."
+            )
+        return problems
 
 
 @lru_cache

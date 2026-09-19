@@ -20,6 +20,14 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
 
+# Fail fast in production if the deployment is left with insecure defaults.
+_safety_problems = settings.validate_production_safety()
+if _safety_problems:
+    raise RuntimeError(
+        "Refusing to start in production with insecure configuration:\n- "
+        + "\n- ".join(_safety_problems)
+    )
+
 app = FastAPI(
     title="ComplyGraph API",
     version="1.0.0",
