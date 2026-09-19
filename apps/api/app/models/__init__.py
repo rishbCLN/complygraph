@@ -1,0 +1,55 @@
+"""All ORM models. Importing this package registers every table on Base.metadata."""
+
+from app.models.evidence import ControlEvidence, Evidence
+from app.models.findings import Finding, RemediationTask, Scan, ScanResult
+from app.models.identity import (
+    AuditEvent,
+    Membership,
+    Organization,
+    Session,
+    User,
+)
+from app.models.inventory import (
+    AssetField,
+    Connector,
+    DataAsset,
+    DataFlow,
+    ProcessingActivity,
+    Vendor,
+)
+from app.models.operations import AIInvestigation, BreachIncident, DataSubjectRequest
+from app.models.regulatory import (
+    Control,
+    ControlAssessment,
+    ControlAssetScope,
+    Obligation,
+    Regulation,
+)
+
+__all__ = [
+    "AIInvestigation",
+    "AssetField",
+    "AuditEvent",
+    "BreachIncident",
+    "Connector",
+    "Control",
+    "ControlAssessment",
+    "ControlAssetScope",
+    "ControlEvidence",
+    "DataAsset",
+    "DataFlow",
+    "DataSubjectRequest",
+    "Evidence",
+    "Finding",
+    "Membership",
+    "Obligation",
+    "Organization",
+    "ProcessingActivity",
+    "Regulation",
+    "RemediationTask",
+    "Scan",
+    "ScanResult",
+    "Session",
+    "User",
+    "Vendor",
+]

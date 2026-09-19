@@ -1,0 +1,28 @@
+# Python / bytecode
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# Local SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Local env / secrets
+.env
+.env.*
+
+# Test / build artifacts
+tests/
+htmlcov/
+.coverage
+dist/
+build/
