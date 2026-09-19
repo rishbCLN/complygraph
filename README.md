@@ -1,7 +1,6 @@
 # ComplyGraph
 
-Continuous Data Governance & Compliance infrastructure for the Digital Personal
-Data Protection Act, 2023 and the DPDP Rules, 2025.
+and the DPDP Rules, 2025.
 
 ComplyGraph discovers where personal data lives, maps how it flows, evaluates
 deterministic controls against a real regulatory library, produces prioritized
