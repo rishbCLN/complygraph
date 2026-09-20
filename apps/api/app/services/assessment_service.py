@@ -130,6 +130,18 @@ def build_context(db: Session, org: Organization) -> ControlContext:
         select(BreachIncident.id).where(BreachIncident.organization_id == org_id).limit(1)
     ) is not None
 
+    # AI-system inventory: one derived-fact dict per system. Feeds the
+    # applicability engine and the AI-specific evaluators.
+    from app.models.ai_systems import AISystem
+    from app.services import ai_system_service
+
+    ai_systems_facts = [
+        ai_system_service.derive_facts(db, system)
+        for system in db.scalars(
+            select(AISystem).where(AISystem.organization_id == org_id)
+        )
+    ]
+
     return ControlContext(
         organization_id=org_id,
         assessment_date=assessment_date,
@@ -141,6 +153,7 @@ def build_context(db: Session, org: Organization) -> ControlContext:
         evidence_by_control=evidence_by_control,
         dsr_configured=dsr_configured,
         breach_workflow_configured=breach_configured,
+        ai_systems=ai_systems_facts,
         flags={
             "deletion_last_status": "FAILED",  # seeded failure scenario; overridable
         },
@@ -165,7 +178,7 @@ def _assess_one(
             ),
         )
     else:
-        evaluation = evaluate(control.evaluator_key, ctx, control.code)
+        evaluation = evaluate(control.evaluator_key, ctx, control.code, control.applies_to)
 
     assessment = ControlAssessment(
         organization_id=org.id,
@@ -199,7 +212,7 @@ def assess_all(db: Session, org: Organization) -> list[tuple[Control, ControlAss
                 ),
             )
         else:
-            evaluation = evaluate(control.evaluator_key, ctx, control.code)
+            evaluation = evaluate(control.evaluator_key, ctx, control.code, control.applies_to)
         assessment = ControlAssessment(
             organization_id=org.id,
             control_id=control.id,

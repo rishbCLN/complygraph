@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.enums import AssetType, Classification
+from app.models.ai_systems import AISystem, AISystemComponent, AISystemFlow
 from app.models.evidence import ControlEvidence, Evidence
 from app.models.findings import Finding
 from app.models.inventory import DataAsset, DataFlow, Vendor
@@ -276,3 +277,114 @@ def asset_graph(db: Session, org_id: uuid.UUID, asset_id: uuid.UUID) -> dict:
             nodes.append(_vendor_node(v))
 
     return {"nodes": nodes, "edges": edges}
+
+
+def _component_node(c: AISystemComponent) -> dict:
+    return {
+        "id": f"component:{c.id}",
+        "kind": c.component_type,
+        "type": "component",
+        "label": c.name,
+        "component_type": c.component_type,
+        "provider": c.provider,
+        "region": c.region,
+        "external": c.external,
+        "vendor_id": str(c.vendor_id) if c.vendor_id else None,
+        "data_asset_id": str(c.data_asset_id) if c.data_asset_id else None,
+        "data_categories": c.data_categories or [],
+    }
+
+
+def ai_system_graph(db: Session, org_id: uuid.UUID, system_id: uuid.UUID) -> dict:
+    """Architecture graph for a single AI system: components + flows (+ vendors).
+
+    Nodes are the system's components (models, data stores, external LLMs, ...);
+    edges are the declared flows between them. Components linked to a Vendor also
+    get a VENDOR node so residency/vendor context is visible on the graph.
+    """
+    system = db.get(AISystem, system_id)
+    if system is None or system.organization_id != org_id:
+        return {"nodes": [], "edges": [], "stats": {}}
+
+    components = list(
+        db.scalars(
+            select(AISystemComponent).where(AISystemComponent.ai_system_id == system_id)
+        )
+    )
+    flows = list(
+        db.scalars(select(AISystemFlow).where(AISystemFlow.ai_system_id == system_id))
+    )
+
+    nodes: list[dict] = [
+        {
+            "id": f"system:{system.id}",
+            "kind": "AI_SYSTEM",
+            "type": "system",
+            "label": system.name,
+            "lifecycle_stage": system.lifecycle_stage,
+            "system_type": system.system_type,
+            "sector": system.sector,
+            "center": True,
+        }
+    ]
+
+    component_ids = {c.id for c in components}
+    referenced_vendor_ids: set[uuid.UUID] = set()
+    for c in components:
+        nodes.append(_component_node(c))
+        if c.vendor_id:
+            referenced_vendor_ids.add(c.vendor_id)
+
+    edges: list[dict] = []
+    # Anchor each component to the system so the graph is connected.
+    for c in components:
+        edges.append(
+            {
+                "id": f"sys-comp:{system.id}:{c.id}",
+                "source": f"system:{system.id}",
+                "target": f"component:{c.id}",
+                "relation": "DEPENDS_ON",
+            }
+        )
+    # Declared component-to-component flows.
+    for f in flows:
+        if f.source_component_id in component_ids and f.target_component_id in component_ids:
+            edges.append(
+                {
+                    "id": f"flow:{f.id}",
+                    "source": f"component:{f.source_component_id}",
+                    "target": f"component:{f.target_component_id}",
+                    "relation": f.relation,
+                    "personal_data": f.contains_personal_data,
+                    "cross_border": f.cross_border,
+                    "purpose": f.purpose,
+                    "data_categories": f.data_categories or [],
+                }
+            )
+    # Component -> Vendor edges (+ vendor nodes).
+    for c in components:
+        if c.vendor_id and c.vendor_id in referenced_vendor_ids:
+            edges.append(
+                {
+                    "id": f"comp-vendor:{c.id}:{c.vendor_id}",
+                    "source": f"component:{c.id}",
+                    "target": f"vendor:{c.vendor_id}",
+                    "relation": "HOSTED_BY",
+                }
+            )
+    for vid in referenced_vendor_ids:
+        v = db.get(Vendor, vid)
+        if v and v.organization_id == org_id:
+            nodes.append(_vendor_node(v))
+
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "stats": {
+            "components": len(components),
+            "flows": len(flows),
+            "vendors": len(referenced_vendor_ids),
+            "external_components": sum(1 for c in components if c.external),
+            "cross_border_flows": sum(1 for f in flows if f.cross_border),
+        },
+    }

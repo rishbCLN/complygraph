@@ -35,6 +35,10 @@ class ControlContext:
     # Operational
     dsr_configured: bool = False
     breach_workflow_configured: bool = False
+    # AI-system inventory: one derived-fact dict per system (see
+    # ai_system_service.derive_facts). Feeds the applicability engine and the
+    # AI-specific evaluators. Empty when no AI systems are inventoried.
+    ai_systems: list[dict] = field(default_factory=list)
     # Ad-hoc flags used by specific evaluators
     flags: dict = field(default_factory=dict)
 
@@ -358,6 +362,236 @@ def eval_generic(ctx: ControlContext, code: str) -> ControlEvaluation:
     )
 
 
+# --- AI-system evaluators -------------------------------------------------------
+#
+# These operate over the AI-system facts carried on the context. They are only
+# invoked for systems the applicability engine has already scoped in (see
+# `evaluate`), so `systems` is the non-empty list of in-scope fact dicts. Each
+# evaluator inspects declared/derived facts and returns a deterministic status
+# with a reason naming the affected systems. AI never decides the status.
+
+
+def _system_names(systems: list[dict]) -> str:
+    return ", ".join(s.get("name", s.get("system_id", "?")) for s in systems)
+
+
+def eval_rbi_localization(ctx: ControlContext, code: str, systems: list[dict]) -> ControlEvaluation:
+    """BFSI payment/customer data must be stored in India: flag non-India regions."""
+    offenders = [s for s in systems if s.get("non_india_regions")]
+    if not offenders:
+        return ControlEvaluation(
+            ControlStatus.PASS.value, 1.0,
+            f"In-scope BFSI system(s) [{_system_names(systems)}] declare only India-based "
+            "regions for components handling personal data.",
+        )
+    regions = sorted({r for s in offenders for r in s.get("non_india_regions", [])})
+    return ControlEvaluation(
+        ControlStatus.FAIL.value, 0.0,
+        f"BFSI system(s) [{_system_names(offenders)}] have components/regions outside India "
+        f"({', '.join(regions)}). Payment/customer data storage outside India is a localisation gap.",
+        recommended_actions=[
+            "Confirm where payment/customer data is stored and processed",
+            "Relocate or ring-fence non-India components handling payment data",
+        ],
+    )
+
+
+def eval_rbi_logging_telemetry(ctx: ControlContext, code: str, systems: list[dict]) -> ControlEvaluation:
+    """AI logs/telemetry with customer data should not leave India via external observability."""
+    offenders = [s for s in systems if s.get("uses_external_observability")]
+    if not offenders:
+        return ControlEvaluation(
+            ControlStatus.PASS.value, 1.0,
+            f"No in-scope BFSI system [{_system_names(systems)}] routes logs/telemetry to an "
+            "external observability service.",
+        )
+    return ControlEvaluation(
+        ControlStatus.NEEDS_REVIEW.value, 0.4,
+        f"BFSI system(s) [{_system_names(offenders)}] send logs/telemetry to external "
+        "observability services. Confirm these do not export customer data outside India.",
+        recommended_actions=[
+            "Verify observability data residency (India-only)",
+            "Redact customer data from exported logs/telemetry",
+        ],
+    )
+
+
+def eval_ai_inference_region(ctx: ControlContext, code: str, systems: list[dict]) -> ControlEvaluation:
+    """BFSI inference should run on India-based infra: flag external inference."""
+    offenders = [s for s in systems if s.get("has_external_inference")]
+    if not offenders:
+        return ControlEvaluation(
+            ControlStatus.PASS.value, 1.0,
+            f"In-scope system(s) [{_system_names(systems)}] perform inference on internal/"
+            "India-based infrastructure.",
+        )
+    return ControlEvaluation(
+        ControlStatus.NEEDS_REVIEW.value, 0.4,
+        f"System(s) [{_system_names(offenders)}] use external inference (e.g. a hosted LLM API). "
+        "For BFSI this is an emerging locality expectation; review where inference executes.",
+        recommended_actions=[
+            "Document the region where model inference executes",
+            "Assess an India-hosted inference option for BFSI data",
+        ],
+    )
+
+
+def eval_vendor_subprocessor(ctx: ControlContext, code: str, systems: list[dict]) -> ControlEvaluation:
+    """Vendors handling BFSI data must show India-only processing and audit rights."""
+    offenders = [s for s in systems if s.get("has_vendors")]
+    if not offenders:
+        return ControlEvaluation(
+            ControlStatus.NOT_APPLICABLE.value, 1.0,
+            f"In-scope system(s) [{_system_names(systems)}] declare no third-party AI vendors.",
+        )
+    return ControlEvaluation(
+        ControlStatus.NEEDS_REVIEW.value, 0.4,
+        f"System(s) [{_system_names(offenders)}] rely on third-party AI vendors. Confirm each "
+        "vendor (and its sub-processors) processes BFSI data in India with audit rights.",
+        recommended_actions=[
+            "Record processor/sub-processor data-residency for each vendor",
+            "Confirm audit rights in vendor contracts",
+        ],
+    )
+
+
+def eval_certin_logging_retention(ctx: ControlContext, code: str, systems: list[dict]) -> ControlEvaluation:
+    """Security logs retained in India for 180 days: evidence-driven, org-wide."""
+    ev_ids = _evidence_ids(ctx, code)
+    if _has_fresh_evidence(ctx, code):
+        return ControlEvaluation(
+            ControlStatus.PASS.value, 1.0,
+            "Evidence shows ICT/AI-system logs are retained securely in India for 180 days.",
+            evidence_ids=ev_ids,
+        )
+    return ControlEvaluation(
+        ControlStatus.NO_EVIDENCE.value, 0.0,
+        "No evidence that ICT/AI-system logs are retained in India for the 180-day CERT-In period.",
+        recommended_actions=[
+            "Enable 180-day log retention within Indian jurisdiction",
+            "Attach the log-retention configuration as evidence",
+        ],
+    )
+
+
+def eval_certin_incident(ctx: ControlContext, code: str, systems: list[dict]) -> ControlEvaluation:
+    """A 6-hour CERT-In incident-reporting pathway must exist (org-wide)."""
+    ev_ids = _evidence_ids(ctx, code)
+    if ctx.breach_workflow_configured or _has_fresh_evidence(ctx, code):
+        return ControlEvaluation(
+            ControlStatus.PASS.value, 1.0,
+            "A cyber-incident reporting pathway is configured; CERT-In 6-hour reporting is "
+            "operationally supported.",
+            evidence_ids=ev_ids,
+        )
+    return ControlEvaluation(
+        ControlStatus.NO_EVIDENCE.value, 0.0,
+        "No incident-reporting pathway is evidenced for CERT-In 6-hour reporting.",
+        recommended_actions=[
+            "Establish a CERT-In reporting pathway (contact + runbook)",
+            "Attach the incident-response procedure as evidence",
+        ],
+    )
+
+
+def eval_ai_inventory(ctx: ControlContext, code: str, systems: list[dict]) -> ControlEvaluation:
+    """A central inventory of production AI systems should exist."""
+    production = [s for s in ctx.ai_systems if s.get("is_production")]
+    if not ctx.ai_systems:
+        return ControlEvaluation(
+            ControlStatus.NO_EVIDENCE.value, 0.0,
+            "No AI systems are inventoried. MeitY guidance recommends a central inventory of "
+            "AI/ML systems in production.",
+            recommended_actions=["Inventory each production AI/ML system"],
+        )
+    unreviewed = [s for s in production if not s.get("is_reviewed")]
+    unowned = [s for s in ctx.ai_systems if not s.get("owner_assigned")]
+    if not production:
+        return ControlEvaluation(
+            ControlStatus.PASS.value, 1.0,
+            f"{len(ctx.ai_systems)} AI system(s) are inventoried; none are yet in production.",
+        )
+    if unreviewed or unowned:
+        gaps = []
+        if unreviewed:
+            gaps.append(f"{len(unreviewed)} production system(s) not reviewed")
+        if unowned:
+            gaps.append(f"{len(unowned)} system(s) without an assigned owner")
+        return ControlEvaluation(
+            ControlStatus.PARTIAL.value, 0.5,
+            f"An AI-system inventory exists ({len(ctx.ai_systems)} system(s)) but has gaps: "
+            f"{'; '.join(gaps)}.",
+            recommended_actions=["Assign an owner to each AI system", "Review production AI systems"],
+        )
+    return ControlEvaluation(
+        ControlStatus.PASS.value, 1.0,
+        f"A central AI-system inventory exists: {len(ctx.ai_systems)} system(s), all production "
+        "systems owned and reviewed.",
+    )
+
+
+def eval_meity_bias(ctx: ControlContext, code: str, systems: list[dict]) -> ControlEvaluation:
+    """Fairness/bias review for high-impact AI: evidence-driven."""
+    ev_ids = _evidence_ids(ctx, code)
+    if _has_fresh_evidence(ctx, code):
+        return ControlEvaluation(
+            ControlStatus.PASS.value, 1.0,
+            f"Fairness/bias testing evidence is present for high-risk system(s) "
+            f"[{_system_names(systems)}].",
+            evidence_ids=ev_ids,
+        )
+    return ControlEvaluation(
+        ControlStatus.NO_EVIDENCE.value, 0.0,
+        f"High-risk system(s) [{_system_names(systems)}] have no documented fairness/bias "
+        "review (MeitY guidance).",
+        recommended_actions=[
+            "Conduct fairness testing across protected categories",
+            "Attach the bias-review report as evidence",
+        ],
+    )
+
+
+def eval_meity_human_oversight(ctx: ControlContext, code: str, systems: list[dict]) -> ControlEvaluation:
+    """Human oversight for high-stakes automated decisions: evidence-driven."""
+    ev_ids = _evidence_ids(ctx, code)
+    if _has_fresh_evidence(ctx, code):
+        return ControlEvaluation(
+            ControlStatus.PASS.value, 1.0,
+            f"Human-oversight evidence is present for automated-decision system(s) "
+            f"[{_system_names(systems)}].",
+            evidence_ids=ev_ids,
+        )
+    return ControlEvaluation(
+        ControlStatus.NO_EVIDENCE.value, 0.0,
+        f"System(s) [{_system_names(systems)}] make automated decisions but no human-oversight "
+        "mechanism is evidenced (MeitY guidance).",
+        recommended_actions=[
+            "Define a human-in-the-loop step for high-stakes decisions",
+            "Attach the oversight procedure as evidence",
+        ],
+    )
+
+
+def eval_model_lineage(ctx: ControlContext, code: str, systems: list[dict]) -> ControlEvaluation:
+    """Model lineage / auditability of AI outputs: evidence-driven."""
+    ev_ids = _evidence_ids(ctx, code)
+    if _has_fresh_evidence(ctx, code):
+        return ControlEvaluation(
+            ControlStatus.PASS.value, 1.0,
+            f"Lineage/auditability evidence is present for system(s) [{_system_names(systems)}].",
+            evidence_ids=ev_ids,
+        )
+    return ControlEvaluation(
+        ControlStatus.NO_EVIDENCE.value, 0.0,
+        f"No lineage/auditability evidence (prompt, context, model version, reviewer) is "
+        f"linked for system(s) [{_system_names(systems)}] (MeitY guidance).",
+        recommended_actions=[
+            "Capture lineage for AI outputs (model version, inputs, reviewer)",
+            "Attach a lineage/audit sample as evidence",
+        ],
+    )
+
+
 EVALUATORS = {
     "notice": eval_notice,
     "consent": eval_consent,
@@ -374,7 +608,67 @@ EVALUATORS = {
     "generic": eval_generic,
 }
 
+# AI-system evaluators receive the list of in-scope AI-system fact dicts. Keys
+# here match the evaluator_key values used by the RBI/CERT-In/MeitY packs.
+AI_EVALUATORS = {
+    "rbi_localization": eval_rbi_localization,
+    "rbi_logging_telemetry": eval_rbi_logging_telemetry,
+    "ai_inference_region": eval_ai_inference_region,
+    "vendor_subprocessor": eval_vendor_subprocessor,
+    "certin_logging_retention": eval_certin_logging_retention,
+    "certin_incident": eval_certin_incident,
+    "ai_inventory": eval_ai_inventory,
+    "meity_bias": eval_meity_bias,
+    "meity_human_oversight": eval_meity_human_oversight,
+    "model_lineage": eval_model_lineage,
+}
 
-def evaluate(evaluator_key: str | None, ctx: ControlContext, code: str) -> ControlEvaluation:
+
+def evaluate(
+    evaluator_key: str | None,
+    ctx: ControlContext,
+    code: str,
+    applies_to: dict | None = None,
+) -> ControlEvaluation:
+    """Evaluate a control, routing AI-scoped controls through the applicability engine.
+
+    For an AI-scoped control (its ``applies_to`` names sectors/ai_types/conditions):
+      - if an AI evaluator is registered for the key, it runs against the subset of
+        AI systems the applicability engine scopes in; when no system is in scope
+        the control is NOT_APPLICABLE (never a blanket NO_EVIDENCE);
+      - otherwise it falls back to the generic org-level evaluators.
+
+    For non-AI-scoped controls the behavior is unchanged.
+    """
+    from app.controls.applicability import (
+        applicable_systems,
+        is_ai_scoped,
+        is_specific_scope,
+    )
+
+    if is_ai_scoped(applies_to) and (evaluator_key in AI_EVALUATORS):
+        in_scope = applicable_systems(applies_to, ctx.ai_systems)
+        # Controls narrowed to specific systems (a named sector/type or any declared
+        # condition) are NOT_APPLICABLE when nothing matches. Org-wide controls
+        # (fully wildcard scope, e.g. CERT-In) always run their evaluator.
+        if not in_scope and is_specific_scope(applies_to):
+            return ControlEvaluation(
+                ControlStatus.NOT_APPLICABLE.value, 1.0,
+                "No inventoried AI system matches this control's scope "
+                f"({_scope_summary(applies_to)}), so it is not currently applicable.",
+            )
+        return AI_EVALUATORS[evaluator_key](ctx, code, in_scope)
+
     evaluator = EVALUATORS.get(evaluator_key or "generic", eval_generic)
     return evaluator(ctx, code)
+
+
+def _scope_summary(applies_to: dict) -> str:
+    parts = []
+    if applies_to.get("sectors"):
+        parts.append(f"sectors={applies_to['sectors']}")
+    if applies_to.get("ai_types"):
+        parts.append(f"ai_types={applies_to['ai_types']}")
+    if applies_to.get("conditions"):
+        parts.append(f"conditions={applies_to['conditions']}")
+    return "; ".join(parts) or "unscoped"

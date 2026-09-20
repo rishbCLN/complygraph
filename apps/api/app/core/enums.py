@@ -133,6 +133,71 @@ class ControlStatus(str, Enum):
     NEEDS_REVIEW = "NEEDS_REVIEW"
 
 
+class AISystemStage(str, Enum):
+    """Lifecycle stage of an AI system (see AI Compliance Compiler spec s.8.2)."""
+
+    IDEA = "IDEA"
+    DEVELOPMENT = "DEVELOPMENT"
+    TESTING = "TESTING"
+    PILOT = "PILOT"
+    PRODUCTION = "PRODUCTION"
+    DEPRECATED = "DEPRECATED"
+    RETIRED = "RETIRED"
+
+
+class AISystemReviewStatus(str, Enum):
+    """Whether an AI system's compliance posture has a documented human review.
+
+    A PRODUCTION system with NOT_REVIEWED status is itself a governance gap
+    (demo scenario: "Production system missing documented review state").
+    """
+
+    NOT_REVIEWED = "NOT_REVIEWED"
+    IN_REVIEW = "IN_REVIEW"
+    REVIEWED = "REVIEWED"
+    NEEDS_RE_REVIEW = "NEEDS_RE_REVIEW"
+
+
+class AISystemType(str, Enum):
+    """Coarse system archetype used by the applicability engine (`ai_types`)."""
+
+    ML_MODEL = "ML_MODEL"  # classical/predictive model (e.g. fraud scoring)
+    LLM = "LLM"  # large-language-model application
+    GENERATIVE = "GENERATIVE"  # broader generative (text/image/audio)
+    RAG = "RAG"  # retrieval-augmented generation
+    AGENTIC = "AGENTIC"  # tool-using agent that can act
+    HYBRID = "HYBRID"  # combination of the above
+    OTHER = "OTHER"
+
+
+class ComponentType(str, Enum):
+    """Architecture-graph node kinds for an AI system's components."""
+
+    MODEL = "MODEL"
+    AGENT = "AGENT"
+    DATASET = "DATASET"
+    DATA_STORE = "DATA_STORE"
+    DATA_CATEGORY = "DATA_CATEGORY"
+    API = "API"
+    SERVICE = "SERVICE"
+    VENDOR = "VENDOR"
+    USER_GROUP = "USER_GROUP"
+    ENDPOINT = "ENDPOINT"
+
+
+class ArchEdgeRelation(str, Enum):
+    """Directed relationships between AI-system components (architecture edges)."""
+
+    PROCESSES = "PROCESSES"
+    STORES = "STORES"
+    SENDS_TO = "SENDS_TO"
+    HOSTED_BY = "HOSTED_BY"
+    OPERATED_BY = "OPERATED_BY"
+    ACCESSED_BY = "ACCESSED_BY"
+    GENERATES = "GENERATES"
+    DEPENDS_ON = "DEPENDS_ON"
+
+
 class EvidenceType(str, Enum):
     DOCUMENT = "DOCUMENT"
     CONFIGURATION = "CONFIGURATION"

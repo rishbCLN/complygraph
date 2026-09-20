@@ -11,6 +11,7 @@ from fastapi import APIRouter
 
 from app.api.routers import (
     ai,
+    ai_systems,
     assets,
     audit,
     auth,
@@ -41,6 +42,7 @@ for module in (
     connectors,
     assets,
     vendors,
+    ai_systems,
     processing_activities,
     regulations,
     controls,
