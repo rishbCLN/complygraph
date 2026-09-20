@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import AuthContext, get_current_context, require_capability
 from app.core.audit import record_audit
 from app.core.database import get_db
+from app.core.errors import ValidationError
 from app.core.rbac import ASSESS_CONTROLS, MANAGE_INVENTORY
 from app.services import ai_system_service, assessment_service, graph_service
 
@@ -144,6 +145,19 @@ class ArchitectureImportIn(BaseModel):
     flows: list[FlowIn] = Field(default_factory=list)
 
 
+class ArchitectureIngestIn(BaseModel):
+    """Import a system from a real infrastructure artifact via an adapter.
+
+    ``source`` selects the adapter (``terraform`` | ``openapi``); ``artifact`` is
+    the parsed JSON document; ``system`` supplies the system-level metadata the
+    artifact does not carry (sector, risk flags, ...).
+    """
+
+    source: str
+    artifact: dict
+    system: AISystemIn
+
+
 # --- Serialization --------------------------------------------------------------
 
 
@@ -242,6 +256,90 @@ def import_architecture(
     return _system_out(db, system)
 
 
+@router.post("/ingest", response_model=AISystemOut, status_code=201)
+def ingest_architecture(
+    payload: ArchitectureIngestIn,
+    ctx: AuthContext = Depends(require_capability(MANAGE_INVENTORY)),
+    db: Session = Depends(get_db),
+) -> AISystemOut:
+    """Create a system by translating a real infrastructure artifact.
+
+    Adapters (Terraform state / OpenAPI) map observable resources to architecture
+    components/flows; unknown residency/externality is left unset so the analysis
+    engine reports it as inferred rather than assumed. Falls back to a clear 400
+    when the artifact cannot be parsed.
+    """
+    from app.services import arch_ingest
+
+    system_meta = payload.system.model_dump(exclude_none=True)
+    try:
+        body = arch_ingest.build_import_body(payload.source, payload.artifact, system_meta)
+    except arch_ingest.IngestError as exc:
+        raise ValidationError(str(exc)) from exc
+
+    system = ai_system_service.import_architecture(db, ctx.organization_id, ctx.user.id, body)
+    record_audit(
+        db,
+        action="ai_system.ingested",
+        organization_id=ctx.organization_id,
+        user_id=ctx.user.id,
+        entity_type="ai_system",
+        entity_id=system.id,
+        metadata={"source": payload.source.lower(), "components": len(body["components"])},
+    )
+    db.commit()
+    return _system_out(db, system)
+
+
+@router.post("/analyze-all")
+def analyze_all_systems(
+    async_: bool = False,
+    ctx: AuthContext = Depends(require_capability(ASSESS_CONTROLS)),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Analyze every AI system in the org in one pass (portfolio view).
+
+    Returns a rollup: per-system summaries plus aggregate counts of systems with
+    failures / regressions. Pass ``async_=true`` to dispatch the work to the
+    worker queue and return immediately (useful for large inventories); the
+    result is then observable via each system's snapshot history.
+
+    NOTE: this route is declared before ``/{system_id}`` so the literal
+    ``analyze-all`` path is not captured as a system id.
+    """
+    if async_:
+        from app.workers.tasks import analyze_ai_systems_task
+
+        async_result = analyze_ai_systems_task.delay(str(ctx.organization_id))
+        record_audit(
+            db,
+            action="ai_system.bulk_analyze_enqueued",
+            organization_id=ctx.organization_id,
+            user_id=ctx.user.id,
+            entity_type="organization",
+            entity_id=ctx.organization_id,
+        )
+        db.commit()
+        return {"status": "enqueued", "task_id": getattr(async_result, "id", None)}
+
+    rollup = assessment_service.analyze_all_systems(db, ctx.organization, persist=True)
+    record_audit(
+        db,
+        action="ai_system.bulk_analyzed",
+        organization_id=ctx.organization_id,
+        user_id=ctx.user.id,
+        entity_type="organization",
+        entity_id=ctx.organization_id,
+        metadata={
+            "system_count": rollup["system_count"],
+            "systems_with_failures": rollup["systems_with_failures"],
+            "total_regressions": rollup["total_regressions"],
+        },
+    )
+    db.commit()
+    return rollup
+
+
 @router.get("/{system_id}", response_model=AISystemOut)
 def get_system(
     system_id: uuid.UUID,
@@ -272,6 +370,26 @@ def get_components(
 ) -> list[ComponentOut]:
     ai_system_service.get_system(db, ctx.organization_id, system_id)
     return [_component_out(c) for c in ai_system_service.list_components(db, system_id)]
+
+
+@router.post("/{system_id}/components", response_model=ComponentOut, status_code=201)
+def add_component(
+    system_id: uuid.UUID,
+    payload: ComponentIn,
+    ctx: AuthContext = Depends(require_capability(MANAGE_INVENTORY)),
+    db: Session = Depends(get_db),
+) -> ComponentOut:
+    """Add a component to an existing system's architecture graph.
+
+    Supports incremental edits after import, so the change-impact view can pick
+    up newly-introduced residency/vendor risk on the next analysis.
+    """
+    system = ai_system_service.get_system(db, ctx.organization_id, system_id)
+    component = ai_system_service.add_component(
+        db, ctx.organization_id, ctx.user.id, system, payload.model_dump(exclude_unset=True)
+    )
+    db.commit()
+    return _component_out(component)
 
 
 @router.get("/{system_id}/flows", response_model=list[FlowOut])
@@ -314,11 +432,15 @@ def analyze_system(
     """Run the deterministic analysis engine scoped to a single AI system.
 
     Returns each AI-scoped control's status, a plain-language reason and
-    recommended actions for this system, plus the derived facts that drove the
-    result. Read-only: no assessments or findings are persisted.
+    recommended actions for this system, the derived facts (with provenance)
+    that drove the result, and a ``changes`` block diffing this run against the
+    previous snapshot. The run is recorded as a snapshot so re-analysis can show
+    what drifted; no control assessments or findings are persisted here.
     """
     system = ai_system_service.get_system(db, ctx.organization_id, system_id)
-    report = assessment_service.analyze_system(db, ctx.organization, system)
+    report = assessment_service.analyze_system(
+        db, ctx.organization, system, persist=True
+    )
     record_audit(
         db,
         action="ai_system.analyzed",
@@ -329,6 +451,8 @@ def analyze_system(
         metadata={
             "applicable": report["summary"]["applicable"],
             "by_status": report["summary"]["by_status"],
+            "regressed": len(report["changes"]["regressed"]),
+            "improved": len(report["changes"]["improved"]),
         },
     )
     db.commit()

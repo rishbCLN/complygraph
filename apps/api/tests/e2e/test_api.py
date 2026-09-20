@@ -131,3 +131,59 @@ def test_findings_csv_report(admin_client):
     assert resp.status_code == 200
     assert "text/csv" in resp.headers["content-type"]
     assert resp.text.strip(), "CSV body should not be empty"
+
+
+def test_system_report_json_carries_citations_and_provenance(admin_client):
+    """The per-system regulator report enriches every control with its legal
+    citation + honest legal-status label, and every fact with its provenance."""
+    systems = admin_client.get(f"{PREFIX}/systems").json()
+    # Pick the BFSI credit-scoring system (has the richest control set).
+    target = next(
+        (s for s in systems if s["sector"] == "bfsi"), systems[0]
+    )
+    resp = admin_client.get(f"{PREFIX}/reports/system/{target['id']}")
+    assert resp.status_code == 200, resp.text
+    report = resp.json()
+
+    assert report["system"]["id"] == target["id"]
+    assert report["controls"], "expected AI-scoped controls in the report"
+    assert report["regulations"], "expected regulations-in-scope rollup"
+    assert "disclaimer" in report
+
+    for c in report["controls"]:
+        cite = c["citation"]
+        assert cite["regulation"]
+        assert cite["legal_status"]
+        assert cite["legal_status_label"]
+        assert "citation_verified" in cite
+
+    # Provenance is attached for the derived facts.
+    assert report["fact_provenance"]["sector"]["confidence"] == "DECLARED"
+
+    # Honest legal labelling: RBI direction is not collapsed into "law".
+    labels = {r["regulation"]: r["legal_status_label"] for r in report["regulations"]}
+    assert any("direction" in v.lower() or "framework" in v.lower() or "guidance" in v.lower()
+               for v in labels.values())
+
+
+def test_system_report_pdf(admin_client):
+    systems = admin_client.get(f"{PREFIX}/systems").json()
+    target = next((s for s in systems if s["sector"] == "bfsi"), systems[0])
+    resp = admin_client.get(f"{PREFIX}/reports/system/{target['id']}/pdf")
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"] == "application/pdf"
+    assert resp.content[:4] == b"%PDF"
+
+
+def test_system_report_requires_capability(admin_client, client):
+    """A viewer without generate_reports cannot pull a system report."""
+    systems = admin_client.get(f"{PREFIX}/systems").json()
+    sid = systems[0]["id"]
+    login = client.post(
+        f"{PREFIX}/auth/login",
+        json={"email": "viewer@asterlane.demo", "password": "DemoPass123!"},
+    )
+    assert login.status_code == 200, login.text
+    client.headers.update({"x-organization-id": login.json()["organization"]["id"]})
+    resp = client.get(f"{PREFIX}/reports/system/{sid}")
+    assert resp.status_code == 403, resp.text

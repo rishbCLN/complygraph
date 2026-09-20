@@ -78,6 +78,113 @@ def executive_report(db: Session, org) -> dict:
     }
 
 
+def _legal_status_label(status: str) -> str:
+    """Human-readable label for a LegalStatus value (honest, non-collapsing)."""
+    return {
+        "BINDING_LAW": "Binding law",
+        "BINDING_RULE": "Binding rule",
+        "REGULATORY_DIRECTION": "Regulatory direction",
+        "REGULATOR_EXPECTATION": "Regulator expectation",
+        "FORMAL_FRAMEWORK": "Formal framework",
+        "GUIDANCE": "Advisory guidance",
+        "BEST_PRACTICE": "Best practice",
+        "INTERNAL_POLICY": "Internal policy",
+    }.get(status, status)
+
+
+def system_report(db: Session, org, system) -> dict:
+    """Assemble a regulator-ready compliance report for a single AI system.
+
+    Runs the deterministic per-system analysis (read-only) and enriches every
+    control with its full legal provenance: the obligation's citation, legal
+    reference/section, source URL, and honest legal-status label, plus the
+    regulation name and pinned pack version. Each control's fact basis (the
+    derived facts + provenance that drove its status) is included so a reviewer
+    can trace every conclusion to observable architecture, never to a black box.
+
+    Language is deliberately non-adjudicative: statuses describe evidence and
+    architecture posture, never "compliant" or "illegal".
+    """
+    from app.services.assessment_service import analyze_system
+
+    analysis = analyze_system(db, org, system)  # read-only; no snapshot written
+    facts = analysis["facts"]
+    provenance = analysis["fact_provenance"]
+
+    # Preload control -> obligation -> regulation for citation enrichment.
+    controls_by_code = {
+        c.code: c for c in db.scalars(select(Control)) if c.code
+    }
+
+    enriched: list[dict] = []
+    citations_seen: dict[str, dict] = {}
+    unverified = 0
+    for entry in analysis["controls"]:
+        control = controls_by_code.get(entry["code"])
+        obligation = db.get(Obligation, control.obligation_id) if control else None
+        regulation = (
+            db.get(Regulation, obligation.regulation_id) if obligation else None
+        )
+        legal_status = (
+            obligation.legal_status if obligation else None
+        ) or "GUIDANCE"
+        citation_status = obligation.citation_status if obligation else "UNVERIFIED"
+        if citation_status != "VERIFIED":
+            unverified += 1
+        citation = {
+            "regulation": regulation.name if regulation else "Uncategorized",
+            "pack": regulation.pack if regulation else None,
+            "pack_version": regulation.pack_version if regulation else None,
+            "obligation_code": obligation.code if obligation else None,
+            "obligation_title": obligation.title if obligation else None,
+            "legal_reference": obligation.legal_reference if obligation else None,
+            "source_section": obligation.source_section if obligation else None,
+            "source_url": (obligation.source_url if obligation else None)
+            or (regulation.source_url if regulation else None),
+            "legal_status": legal_status,
+            "legal_status_label": _legal_status_label(legal_status),
+            "citation_status": citation_status,
+            "citation_verified": citation_status == "VERIFIED",
+        }
+        enriched.append({**entry, "citation": citation})
+        reg_name = citation["regulation"]
+        citations_seen.setdefault(
+            reg_name,
+            {
+                "regulation": reg_name,
+                "legal_status": legal_status,
+                "legal_status_label": _legal_status_label(legal_status),
+                "pack": citation["pack"],
+                "pack_version": citation["pack_version"],
+                "control_count": 0,
+            },
+        )
+        citations_seen[reg_name]["control_count"] += 1
+
+    return {
+        "organization": org.name,
+        "system": {
+            "id": str(system.id),
+            "name": system.name,
+            "sector": system.sector,
+            "system_type": system.system_type,
+            "lifecycle_stage": system.lifecycle_stage,
+            "review_status": system.review_status,
+            "owner": system.owner,
+            "business_purpose": system.business_purpose,
+        },
+        "assessment_date": analysis["assessment_date"],
+        "generated_at": datetime.utcnow().isoformat(),
+        "facts": facts,
+        "fact_provenance": provenance,
+        "summary": analysis["summary"],
+        "controls": enriched,
+        "regulations": list(citations_seen.values()),
+        "unverified_citations": unverified,
+        "disclaimer": DISCLAIMER,
+    }
+
+
 def executive_report_pdf(db: Session, org) -> bytes:
     """Render the executive report as a PDF byte string."""
     try:
@@ -181,6 +288,117 @@ def executive_report_pdf(db: Session, org) -> bytes:
     )
     elements.append(t3)
     elements.append(Spacer(1, 8 * mm))
+    elements.append(Paragraph(data["disclaimer"], small))
+
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+def system_report_pdf(db: Session, org, system) -> bytes:
+    """Render the per-system regulator report as a PDF byte string."""
+    try:
+        from reportlab.lib import colors  # noqa: PLC0415
+        from reportlab.lib.pagesizes import A4  # noqa: PLC0415
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle  # noqa: PLC0415
+        from reportlab.lib.units import mm  # noqa: PLC0415
+        from reportlab.platypus import (  # noqa: PLC0415
+            Paragraph,
+            SimpleDocTemplate,
+            Spacer,
+            Table,
+            TableStyle,
+        )
+    except ImportError as exc:  # pragma: no cover - depends on optional dependency
+        from app.core.errors import AppError
+
+        raise AppError(
+            "PDF export is unavailable because the 'reportlab' dependency is not installed. "
+            "Use the JSON system report instead, or install reportlab.",
+            code="PDF_UNAVAILABLE",
+            status_code=503,
+        ) from exc
+
+    data = system_report(db, org, system)
+    sysinfo = data["system"]
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=A4, title=f"AI System Compliance Report - {sysinfo['name']}"
+    )
+    styles = getSampleStyleSheet()
+    small = ParagraphStyle("small", parent=styles["Normal"], fontSize=8, textColor=colors.grey)
+    wrap = ParagraphStyle("wrap", parent=styles["Normal"], fontSize=8, leading=10)
+    header_style = TableStyle(
+        [
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f2937")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ]
+    )
+    elements: list = []
+
+    elements.append(Paragraph("AI System Compliance Report", styles["Title"]))
+    elements.append(Paragraph(f"System: {sysinfo['name']}", styles["Heading2"]))
+    elements.append(Paragraph(f"Organization: {data['organization']}", styles["Normal"]))
+    elements.append(
+        Paragraph(
+            f"Sector: {sysinfo['sector']} | Type: {sysinfo['system_type']} | "
+            f"Stage: {sysinfo['lifecycle_stage']} | Review: {sysinfo['review_status']}",
+            styles["Normal"],
+        )
+    )
+    elements.append(Paragraph(f"Assessment date: {data['assessment_date']}", styles["Normal"]))
+    elements.append(Paragraph(f"Generated: {data['generated_at']}", styles["Normal"]))
+    elements.append(Spacer(1, 5 * mm))
+
+    # Applicable regulations and their honest legal weight.
+    elements.append(Paragraph("Regulations in Scope", styles["Heading2"]))
+    reg_rows = [["Regulation", "Legal weight", "Pack", "Controls"]]
+    for r in data["regulations"]:
+        pack = f"{r['pack']}/{r['pack_version']}" if r.get("pack") else "-"
+        reg_rows.append([r["regulation"], r["legal_status_label"], pack, r["control_count"]])
+    rt = Table(reg_rows, colWidths=[60 * mm, 45 * mm, 35 * mm, 20 * mm])
+    rt.setStyle(header_style)
+    elements.append(rt)
+    elements.append(Spacer(1, 5 * mm))
+
+    # Per-control posture with citation.
+    elements.append(Paragraph("Control Posture", styles["Heading2"]))
+    ctrl_rows = [["Control", "Status", "Legal weight", "Basis / citation"]]
+    for c in data["controls"]:
+        cite = c["citation"]
+        ref = cite.get("legal_reference") or cite.get("source_section") or ""
+        verified = "" if cite["citation_verified"] else " [HUMAN REVIEW REQUIRED]"
+        basis = Paragraph(
+            f"{c['reason']}<br/><font size=7 color='#6b7280'>"
+            f"{cite['regulation']}"
+            f"{(' - ' + ref) if ref else ''}{verified}</font>",
+            wrap,
+        )
+        ctrl_rows.append(
+            [
+                Paragraph(f"{c['code']}<br/>{c['title']}", wrap),
+                c["status"].replace("_", " "),
+                cite["legal_status_label"],
+                basis,
+            ]
+        )
+    ct = Table(ctrl_rows, colWidths=[38 * mm, 22 * mm, 30 * mm, 70 * mm], repeatRows=1)
+    ct.setStyle(header_style)
+    elements.append(ct)
+    elements.append(Spacer(1, 5 * mm))
+
+    if data["unverified_citations"]:
+        elements.append(
+            Paragraph(
+                f"Note: {data['unverified_citations']} control citation(s) are not yet "
+                "verified against source text and are marked HUMAN REVIEW REQUIRED.",
+                small,
+            )
+        )
+    elements.append(Spacer(1, 3 * mm))
     elements.append(Paragraph(data["disclaimer"], small))
 
     doc.build(elements)

@@ -7,6 +7,10 @@ import {
 } from "@tanstack/react-query";
 import { apiFetch } from "./api";
 import type {
+  AISystem,
+  AISystemComponent,
+  AISystemFlow,
+  AnalysisReport,
   Assessment,
   Asset,
   AssetControl,
@@ -28,6 +32,7 @@ import type {
   Obligation,
   Organization,
   Page,
+  PortfolioRollup,
   ProcessingActivity,
   Regulation,
   Scan,
@@ -414,5 +419,61 @@ export function useSearch(q: string) {
     queryKey: ["search", q],
     queryFn: () => apiFetch<SearchResults>(`/search?q=${encodeURIComponent(q)}`),
     enabled: q.trim().length >= 2,
+  });
+}
+
+// --- AI systems ----------------------------------------------------------------
+
+export function useAiSystems() {
+  return useQuery({
+    queryKey: ["ai-systems"],
+    queryFn: () => apiFetch<AISystem[]>("/systems"),
+  });
+}
+
+export function useAiSystem(id: string) {
+  return useQuery({
+    queryKey: ["ai-system", id],
+    queryFn: () => apiFetch<AISystem>(`/systems/${id}`),
+    enabled: !!id,
+  });
+}
+
+export function useAiSystemComponents(id: string) {
+  return useQuery({
+    queryKey: ["ai-system", id, "components"],
+    queryFn: () => apiFetch<AISystemComponent[]>(`/systems/${id}/components`),
+    enabled: !!id,
+  });
+}
+
+export function useAiSystemFlows(id: string) {
+  return useQuery({
+    queryKey: ["ai-system", id, "flows"],
+    queryFn: () => apiFetch<AISystemFlow[]>(`/systems/${id}/flows`),
+    enabled: !!id,
+  });
+}
+
+export function useAnalyzeSystemMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<AnalysisReport>(`/systems/${id}/analyze`, { method: "POST" }),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: ["ai-system", id] });
+      qc.invalidateQueries({ queryKey: ["ai-systems"] });
+    },
+  });
+}
+
+export function useAnalyzeAllSystemsMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<PortfolioRollup>("/systems/analyze-all", { method: "POST" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ai-systems"] });
+    },
   });
 }

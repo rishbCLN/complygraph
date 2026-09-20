@@ -381,6 +381,17 @@ def test_analyze_system_returns_scoped_control_report(admin_client):
     assert localization["scope"] == "system"
     assert localization["applicable"] is True
 
+    # Fact provenance distinguishes certain from inferred facts.
+    prov = report["fact_provenance"]
+    assert prov["sector"]["confidence"] == "DECLARED"
+    assert prov["sector"]["band"] == "HIGH"
+    # These structural facts are TRUE because concrete components/flows exist.
+    assert prov["has_external_inference"]["confidence"] == "OBSERVED"
+    assert prov["has_cross_border_flow"]["confidence"] == "OBSERVED"
+    assert prov["has_vendors"]["confidence"] == "OBSERVED"
+    for meta in prov.values():
+        assert meta["basis"]  # every fact explains how it was determined
+
 
 def test_analyze_general_system_gates_bfsi_controls(admin_client):
     """A general, low-risk system reports BFSI/condition-scoped controls as
@@ -408,6 +419,275 @@ def test_analyze_general_system_gates_bfsi_controls(admin_client):
     assert status["MEITY-OVERSIGHT-001"] == "NOT_APPLICABLE"
     # Org-wide controls still evaluate.
     assert status["CERTIN-LOGS-001"] == "NO_EVIDENCE"
+
+
+def test_analyze_reports_fact_provenance(admin_client):
+    """The report distinguishes DECLARED facts, OBSERVED structural facts, and
+    INFERRED facts (absence of evidence) so a reviewer can weigh each conclusion."""
+    vendor_name = _first_vendor_name(admin_client)
+    body = {
+        "system": {
+            "name": "Provenance BFSI",
+            "system_type": "LLM",
+            "sector": "BFSI",
+            "lifecycle_stage": "PRODUCTION",
+            "processes_personal_data": True,
+            "makes_automated_decisions": True,
+            "high_risk": True,
+            "regions": ["India"],
+        },
+        "components": [
+            {
+                "key": "llm",
+                "name": "Hosted LLM",
+                "type": "MODEL",
+                "external": True,
+                "region": "us",
+                "vendor": vendor_name,
+            },
+        ],
+        "flows": [],
+    }
+    sid = admin_client.post(f"{PREFIX}/systems/import", json=body).json()["id"]
+    report = admin_client.post(f"{PREFIX}/systems/{sid}/analyze").json()
+
+    prov = report["fact_provenance"]
+    # Declared facts are asserted directly on the record -> DECLARED / HIGH.
+    assert prov["sector"]["confidence"] == "DECLARED"
+    assert prov["high_risk"]["band"] == "HIGH"
+    # A positively-found external model -> OBSERVED / HIGH.
+    assert report["facts"]["has_external_inference"] is True
+    assert prov["has_external_inference"]["confidence"] == "OBSERVED"
+    # Nothing marks a cross-border flow (there are no flows) -> INFERRED / MEDIUM,
+    # never silently presented as a positive assurance.
+    assert report["facts"]["has_cross_border_flow"] is False
+    assert prov["has_cross_border_flow"]["confidence"] == "INFERRED"
+    assert prov["has_cross_border_flow"]["band"] == "MEDIUM"
+    assert prov["has_cross_border_flow"]["basis"]
+
+
+def test_analyze_provenance_unknown_without_architecture(admin_client):
+    """With no components/flows recorded, structural facts are UNKNOWN (not a
+    confident 'no'), so absence of data is not mistaken for absence of risk."""
+    sid = admin_client.post(
+        f"{PREFIX}/systems",
+        json={"name": "No Arch", "system_type": "LLM", "sector": "bfsi"},
+    ).json()["id"]
+    report = admin_client.post(f"{PREFIX}/systems/{sid}/analyze").json()
+    prov = report["fact_provenance"]
+    assert prov["has_external_inference"]["confidence"] == "UNKNOWN"
+    assert prov["has_external_inference"]["band"] == "LOW"
+    assert prov["has_vendors"]["confidence"] == "UNKNOWN"
+
+
+def test_ingest_terraform_creates_system_with_derived_residency(admin_client):
+    """POST /systems/ingest translates a Terraform state into a system whose
+    architecture (and thus residency facts) is derived from real resources."""
+    artifact = {
+        "values": {
+            "root_module": {
+                "resources": [
+                    {
+                        "address": "aws_sagemaker_endpoint.scorer",
+                        "mode": "managed",
+                        "type": "aws_sagemaker_endpoint",
+                        "name": "scorer",
+                        "values": {"name": "credit-scorer", "region": "us-east-1"},
+                    },
+                    {
+                        "address": "aws_db_instance.features",
+                        "mode": "managed",
+                        "type": "aws_db_instance",
+                        "name": "features",
+                        "values": {"identifier": "features", "region": "ap-south-1"},
+                    },
+                ]
+            }
+        }
+    }
+    resp = admin_client.post(
+        f"{PREFIX}/systems/ingest",
+        json={
+            "source": "terraform",
+            "artifact": artifact,
+            "system": {
+                "name": "Ingested TF Scorer",
+                "system_type": "ML_MODEL",
+                "sector": "bfsi",
+                "lifecycle_stage": "PRODUCTION",
+            },
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    sid = resp.json()["id"]
+    assert resp.json()["component_count"] == 2
+
+    facts = admin_client.get(f"{PREFIX}/systems/{sid}/facts").json()
+    # A us-east-1 resource makes the system have a non-India region.
+    assert "us-east-1" in facts["non_india_regions"]
+
+
+def test_ingest_openapi_creates_system(admin_client):
+    resp = admin_client.post(
+        f"{PREFIX}/systems/ingest",
+        json={
+            "source": "openapi",
+            "artifact": {
+                "openapi": "3.0.0",
+                "info": {"title": "Docs API", "version": "1.0"},
+                "servers": [{"url": "https://api.openai.com/v1"}],
+                "paths": {},
+            },
+            "system": {"name": "Ingested OAS", "system_type": "RAG", "sector": "general"},
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    sid = resp.json()["id"]
+    comps = admin_client.get(f"{PREFIX}/systems/{sid}/components").json()
+    names = {c["name"] for c in comps}
+    assert "Docs API" in names
+    assert "api.openai.com" in names
+    assert any(c["external"] for c in comps if c["name"] == "api.openai.com")
+
+
+def test_ingest_unknown_source_is_rejected(admin_client):
+    resp = admin_client.post(
+        f"{PREFIX}/systems/ingest",
+        json={"source": "cloudformation", "artifact": {}, "system": {"name": "X"}},
+    )
+    assert resp.status_code == 422, resp.text
+    assert "Unsupported ingestion source" in resp.text
+
+
+def test_analyze_all_returns_portfolio_rollup(admin_client):
+    """POST /systems/analyze-all analyzes every system and returns a rollup with
+    per-system summaries and aggregate failure/regression counts."""
+    resp = admin_client.post(f"{PREFIX}/systems/analyze-all")
+    assert resp.status_code == 200, resp.text
+    rollup = resp.json()
+
+    assert rollup["system_count"] >= 1
+    assert len(rollup["systems"]) == rollup["system_count"]
+    assert "systems_with_failures" in rollup
+    assert "total_regressions" in rollup
+    for s in rollup["systems"]:
+        assert "system_id" in s
+        assert "summary" in s
+        assert "by_status" in s["summary"]
+
+
+def test_analyze_all_async_enqueues(admin_client):
+    """The async variant dispatches to the worker (eager in tests) and returns a
+    task handle without blocking on the full rollup."""
+    resp = admin_client.post(f"{PREFIX}/systems/analyze-all", params={"async_": "true"})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "enqueued"
+
+
+def test_analyze_all_requires_capability(admin_client, client):
+    """A viewer without assess_controls cannot run a bulk analysis."""
+    viewer = _viewer_client(client)
+    resp = viewer.post(f"{PREFIX}/systems/analyze-all")
+    assert resp.status_code == 403, resp.text
+
+
+def test_analyze_first_run_is_baseline(admin_client):
+    """The first analysis of a system has no prior snapshot to diff against."""
+    sid = admin_client.post(
+        f"{PREFIX}/systems",
+        json={"name": "Baseline System", "system_type": "LLM", "sector": "bfsi"},
+    ).json()["id"]
+    report = admin_client.post(f"{PREFIX}/systems/{sid}/analyze").json()
+    assert report["changes"]["is_baseline"] is True
+    assert report["changes"]["regressed"] == []
+    assert report["changes"]["improved"] == []
+    assert report["changes"]["previous_at"] is None
+
+
+def test_analyze_change_impact_detects_regression(admin_client):
+    """Re-analyzing after the architecture worsens reports a control regression.
+
+    A BFSI production system starts fully India-resident (localization PASS).
+    Adding an external US model component makes inference cross-border, so the
+    localization control regresses PASS -> FAIL and the diff must surface it.
+    """
+    body = {
+        "system": {
+            "name": "Drift Watch",
+            "system_type": "LLM",
+            "sector": "BFSI",
+            "lifecycle_stage": "PRODUCTION",
+            "processes_personal_data": True,
+            "makes_automated_decisions": True,
+            "high_risk": True,
+            "regions": ["India"],
+        },
+        "components": [
+            {"key": "store", "name": "Feature Store", "type": "DATA_STORE", "region": "India"},
+        ],
+        "flows": [],
+    }
+    sid = admin_client.post(f"{PREFIX}/systems/import", json=body).json()["id"]
+
+    first = admin_client.post(f"{PREFIX}/systems/{sid}/analyze").json()
+    assert first["changes"]["is_baseline"] is True
+    first_status = {c["code"]: c["status"] for c in first["controls"]}
+    assert first_status["RBI-LOCALIZATION-001"] == "PASS"
+
+    # Worsen the architecture: add an external US-hosted model.
+    admin_client.post(
+        f"{PREFIX}/systems/{sid}/components",
+        json={"name": "External LLM", "type": "MODEL", "external": True, "region": "us"},
+    )
+
+    second = admin_client.post(f"{PREFIX}/systems/{sid}/analyze").json()
+    changes = second["changes"]
+    assert changes["is_baseline"] is False
+    assert changes["previous_at"] is not None
+    regressed_codes = {t["code"] for t in changes["regressed"]}
+    assert "RBI-LOCALIZATION-001" in regressed_codes
+    loc = next(t for t in changes["regressed"] if t["code"] == "RBI-LOCALIZATION-001")
+    assert loc["from"] == "PASS"
+    assert loc["to"] == "FAIL"
+
+
+def test_analyze_change_impact_detects_improvement(admin_client):
+    """Re-analyzing after governance gaps close reports an improvement transition.
+
+    A production system with no owner and no documented review is a PARTIAL
+    inventory gap (MeitY). Assigning an owner and recording the review closes it,
+    so the inventory control improves PARTIAL -> PASS and the diff surfaces it.
+    """
+    sid = admin_client.post(
+        f"{PREFIX}/systems",
+        json={
+            "name": "Review Me",
+            "system_type": "LLM",
+            "sector": "general",
+            "lifecycle_stage": "PRODUCTION",
+        },
+    ).json()["id"]
+
+    first = admin_client.post(f"{PREFIX}/systems/{sid}/analyze").json()
+    first_status = {c["code"]: c["status"] for c in first["controls"]}
+    assert first_status["MEITY-INVENTORY-001"] == "PARTIAL"
+
+    # Close the governance gaps: assign an owner and record the review.
+    admin_client.patch(
+        f"{PREFIX}/systems/{sid}",
+        json={"owner": "Priya Nair", "review_status": "REVIEWED"},
+    )
+
+    second = admin_client.post(f"{PREFIX}/systems/{sid}/analyze").json()
+    second_status = {c["code"]: c["status"] for c in second["controls"]}
+    assert second_status["MEITY-INVENTORY-001"] == "PASS"
+    changes = second["changes"]
+    improved_codes = {t["code"] for t in changes["improved"]}
+    assert "MEITY-INVENTORY-001" in improved_codes
+    inv = next(t for t in changes["improved"] if t["code"] == "MEITY-INVENTORY-001")
+    assert inv["from"] == "PARTIAL"
+    assert inv["to"] == "PASS"
 
 
 def test_analyze_requires_capability(admin_client, client):

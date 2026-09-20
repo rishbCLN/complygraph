@@ -51,6 +51,9 @@ class ControlEvaluation:
     evidence_ids: list[str] = field(default_factory=list)
     affected_asset_ids: list[str] = field(default_factory=list)
     recommended_actions: list[str] = field(default_factory=list)
+    # AI systems this evaluation implicates (for AI-scoped controls). Drives
+    # per-system finding attribution. Empty for org-level controls.
+    affected_system_ids: list[str] = field(default_factory=list)
 
 
 def _fresh_evidence(evidence: list[dict]) -> list[dict]:
@@ -375,6 +378,10 @@ def _system_names(systems: list[dict]) -> str:
     return ", ".join(s.get("name", s.get("system_id", "?")) for s in systems)
 
 
+def _system_ids(systems: list[dict]) -> list[str]:
+    return [str(s["system_id"]) for s in systems if s.get("system_id")]
+
+
 def eval_rbi_localization(ctx: ControlContext, code: str, systems: list[dict]) -> ControlEvaluation:
     """BFSI payment/customer data must be stored in India: flag non-India regions."""
     offenders = [s for s in systems if s.get("non_india_regions")]
@@ -383,6 +390,7 @@ def eval_rbi_localization(ctx: ControlContext, code: str, systems: list[dict]) -
             ControlStatus.PASS.value, 1.0,
             f"In-scope BFSI system(s) [{_system_names(systems)}] declare only India-based "
             "regions for components handling personal data.",
+            affected_system_ids=_system_ids(systems),
         )
     regions = sorted({r for s in offenders for r in s.get("non_india_regions", [])})
     return ControlEvaluation(
@@ -393,6 +401,7 @@ def eval_rbi_localization(ctx: ControlContext, code: str, systems: list[dict]) -
             "Confirm where payment/customer data is stored and processed",
             "Relocate or ring-fence non-India components handling payment data",
         ],
+        affected_system_ids=_system_ids(offenders),
     )
 
 
@@ -404,6 +413,7 @@ def eval_rbi_logging_telemetry(ctx: ControlContext, code: str, systems: list[dic
             ControlStatus.PASS.value, 1.0,
             f"No in-scope BFSI system [{_system_names(systems)}] routes logs/telemetry to an "
             "external observability service.",
+            affected_system_ids=_system_ids(systems),
         )
     return ControlEvaluation(
         ControlStatus.NEEDS_REVIEW.value, 0.4,
@@ -413,6 +423,7 @@ def eval_rbi_logging_telemetry(ctx: ControlContext, code: str, systems: list[dic
             "Verify observability data residency (India-only)",
             "Redact customer data from exported logs/telemetry",
         ],
+        affected_system_ids=_system_ids(offenders),
     )
 
 
@@ -424,6 +435,7 @@ def eval_ai_inference_region(ctx: ControlContext, code: str, systems: list[dict]
             ControlStatus.PASS.value, 1.0,
             f"In-scope system(s) [{_system_names(systems)}] perform inference on internal/"
             "India-based infrastructure.",
+            affected_system_ids=_system_ids(systems),
         )
     return ControlEvaluation(
         ControlStatus.NEEDS_REVIEW.value, 0.4,
@@ -433,6 +445,7 @@ def eval_ai_inference_region(ctx: ControlContext, code: str, systems: list[dict]
             "Document the region where model inference executes",
             "Assess an India-hosted inference option for BFSI data",
         ],
+        affected_system_ids=_system_ids(offenders),
     )
 
 
@@ -443,6 +456,7 @@ def eval_vendor_subprocessor(ctx: ControlContext, code: str, systems: list[dict]
         return ControlEvaluation(
             ControlStatus.NOT_APPLICABLE.value, 1.0,
             f"In-scope system(s) [{_system_names(systems)}] declare no third-party AI vendors.",
+            affected_system_ids=_system_ids(systems),
         )
     return ControlEvaluation(
         ControlStatus.NEEDS_REVIEW.value, 0.4,
@@ -452,6 +466,7 @@ def eval_vendor_subprocessor(ctx: ControlContext, code: str, systems: list[dict]
             "Record processor/sub-processor data-residency for each vendor",
             "Confirm audit rights in vendor contracts",
         ],
+        affected_system_ids=_system_ids(offenders),
     )
 
 
@@ -548,6 +563,7 @@ def eval_meity_bias(ctx: ControlContext, code: str, systems: list[dict]) -> Cont
             "Conduct fairness testing across protected categories",
             "Attach the bias-review report as evidence",
         ],
+        affected_system_ids=_system_ids(systems),
     )
 
 
@@ -569,6 +585,7 @@ def eval_meity_human_oversight(ctx: ControlContext, code: str, systems: list[dic
             "Define a human-in-the-loop step for high-stakes decisions",
             "Attach the oversight procedure as evidence",
         ],
+        affected_system_ids=_system_ids(systems),
     )
 
 
@@ -589,6 +606,7 @@ def eval_model_lineage(ctx: ControlContext, code: str, systems: list[dict]) -> C
             "Capture lineage for AI outputs (model version, inputs, reviewer)",
             "Attach a lineage/audit sample as evidence",
         ],
+        affected_system_ids=_system_ids(systems),
     )
 
 

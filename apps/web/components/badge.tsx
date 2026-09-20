@@ -29,6 +29,20 @@ const STATUS_STYLES: Record<string, string> = {
   EXPIRED: "bg-fail/15 text-fail border-fail/30",
   UNKNOWN: "bg-muted/10 text-muted border-border",
   HIGH_RISK: "bg-high/15 text-high border-high/30",
+  // AI-system architecture + lifecycle
+  EXTERNAL: "bg-high/15 text-high border-high/30",
+  CROSS_BORDER: "bg-high/15 text-high border-high/30",
+  PRODUCTION: "bg-pass/15 text-pass border-pass/30",
+  DEVELOPMENT: "bg-low/15 text-low border-low/30",
+  TESTING: "bg-low/15 text-low border-low/30",
+  PILOT: "bg-medium/15 text-medium border-medium/30",
+  DEPRECATED: "bg-muted/10 text-muted border-border",
+  RETIRED: "bg-muted/10 text-muted border-border",
+  IDEA: "bg-muted/10 text-muted border-border",
+  REVIEWED: "bg-pass/15 text-pass border-pass/30",
+  NOT_REVIEWED: "bg-high/15 text-high border-high/30",
+  IN_REVIEW: "bg-medium/15 text-medium border-medium/30",
+  NEEDS_RE_REVIEW: "bg-medium/15 text-medium border-medium/30",
 };
 
 export function Badge({

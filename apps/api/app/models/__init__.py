@@ -1,6 +1,11 @@
 """All ORM models. Importing this package registers every table on Base.metadata."""
 
-from app.models.ai_systems import AISystem, AISystemComponent, AISystemFlow
+from app.models.ai_systems import (
+    AISystem,
+    AISystemComponent,
+    AISystemFlow,
+    AISystemSnapshot,
+)
 from app.models.evidence import ControlEvidence, Evidence
 from app.models.findings import Finding, RemediationTask, Scan, ScanResult
 from app.models.identity import (
@@ -33,6 +38,7 @@ __all__ = [
     "AISystem",
     "AISystemComponent",
     "AISystemFlow",
+    "AISystemSnapshot",
     "AssetField",
     "AuditEvent",
     "BreachIncident",

@@ -5,8 +5,8 @@ import { EmptyState, Panel, Spinner } from "@/components/panel";
 import { PageHeader } from "@/components/ui";
 import { downloadUrl } from "@/lib/api";
 import { titleCase } from "@/lib/format";
-import { useExecutiveReport } from "@/lib/queries";
-import { Download, FileText } from "lucide-react";
+import { useAiSystems, useExecutiveReport } from "@/lib/queries";
+import { BrainCircuit, Download, FileText } from "lucide-react";
 
 type ReportDef = {
   name: string;
@@ -52,6 +52,7 @@ const REPORTS: ReportDef[] = [
 
 export default function ReportsPage() {
   const exec = useExecutiveReport();
+  const systems = useAiSystems();
   const disclaimer = (exec.data?.disclaimer as string) || null;
   const summary = exec.data?.summary as Record<string, unknown> | undefined;
 
@@ -87,6 +88,60 @@ export default function ReportsPage() {
           </Panel>
         ))}
       </div>
+
+      <Panel
+        title={
+          <span className="flex items-center gap-2">
+            <BrainCircuit className="h-4 w-4 text-accent" />
+            Per-System Compliance Reports
+          </span>
+        }
+        className="mt-4"
+      >
+        {systems.isLoading ? (
+          <Spinner />
+        ) : !systems.data || systems.data.length === 0 ? (
+          <EmptyState message="No AI systems to report on yet." />
+        ) : (
+          <div className="divide-y divide-border">
+            {systems.data.map((s) => (
+              <div
+                key={s.id}
+                className="flex items-center justify-between gap-4 px-4 py-3"
+              >
+                <div>
+                  <div className="text-sm font-medium">{s.name}</div>
+                  <p className="mt-0.5 text-xs uppercase text-muted">
+                    {s.sector} · {s.system_type} · {s.lifecycle_stage}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <a
+                    href={downloadUrl(`/reports/system/${s.id}`)}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <Button size="sm" variant="secondary">
+                      <Download className="h-3 w-3" />
+                      JSON
+                    </Button>
+                  </a>
+                  <a
+                    href={downloadUrl(`/reports/system/${s.id}/pdf`)}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <Button size="sm" variant="secondary">
+                      <Download className="h-3 w-3" />
+                      PDF
+                    </Button>
+                  </a>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Panel>
 
       <Panel title="Executive Report Preview" className="mt-4">
         {exec.isLoading ? (

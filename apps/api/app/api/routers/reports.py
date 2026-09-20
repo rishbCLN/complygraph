@@ -5,10 +5,12 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 
+import uuid
+
 from app.api.deps import AuthContext, require_capability
 from app.core.database import get_db
 from app.core.rbac import GENERATE_REPORTS
-from app.services import reports_service
+from app.services import ai_system_service, reports_service
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -72,3 +74,38 @@ def audit_report(
 ):
     rows = reports_service.audit_rows(db, ctx.organization_id)
     return _tabular_response(rows, fmt, "complygraph-audit")
+
+
+@router.get("/system/{system_id}")
+def system_report(
+    system_id: uuid.UUID,
+    ctx: AuthContext = Depends(require_capability(GENERATE_REPORTS)),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Regulator-ready per-system compliance report (JSON).
+
+    Every control carries its legal citation and honest legal-status label, and
+    every derived fact carries its provenance, so the report is auditable end to
+    end. Read-only.
+    """
+    system = ai_system_service.get_system(db, ctx.organization_id, system_id)
+    return reports_service.system_report(db, ctx.organization, system)
+
+
+@router.get("/system/{system_id}/pdf")
+def system_report_pdf(
+    system_id: uuid.UUID,
+    ctx: AuthContext = Depends(require_capability(GENERATE_REPORTS)),
+    db: Session = Depends(get_db),
+) -> Response:
+    """Regulator-ready per-system compliance report rendered as PDF."""
+    system = ai_system_service.get_system(db, ctx.organization_id, system_id)
+    pdf = reports_service.system_report_pdf(db, ctx.organization, system)
+    safe = "".join(ch for ch in system.name if ch.isalnum() or ch in "-_") or "system"
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="complygraph-{safe}-report.pdf"'
+        },
+    )

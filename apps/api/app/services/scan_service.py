@@ -280,7 +280,15 @@ def _persist_asset(
 
 
 def _generate_findings(db: Session, org: Organization, scan: Scan) -> int:
-    """Regenerate control-driven findings after a scan and return the count created/updated."""
+    """Regenerate control-driven findings after a scan and return the count created/updated.
+
+    For AI-scoped controls whose evaluation implicates specific AI systems
+    (``evaluation.affected_system_ids``), one finding is created per affected
+    system, attributed via ``ai_system_id`` and titled with the system name, so a
+    localisation gap on two systems is two tracked, independently-resolvable
+    findings. Org-level controls produce a single finding as before.
+    """
+    from app.models.ai_systems import AISystem
     from app.services.assessment_service import assess_all
 
     count = 0
@@ -299,21 +307,43 @@ def _generate_findings(db: Session, org: Organization, scan: Scan) -> int:
                 volume = volume_band(asset.row_count)
         control_gap = 5 if assessment.status in {"FAIL", "NO_EVIDENCE"} else 3
         exposure = 3
-        findings_service.upsert_finding(
-            db,
-            organization_id=org.id,
-            finding_type=f"control:{control.code}",
-            title=f"{control.title} — {assessment.status.replace('_', ' ').title()}",
-            description=evaluation.reason,
-            risk_inputs=RiskInputs(sensitivity, exposure, control_gap, volume),
-            control_id=control.id,
-            asset_id=affected_asset_id,
-            data_categories=None,
-            recommended_actions=evaluation.recommended_actions,
-            evidence_refs=evaluation.evidence_ids,
-            source="scan",
-        )
-        count += 1
+        status_label = assessment.status.replace("_", " ").title()
+        base_title = f"{control.title} — {status_label}"
+        risk_inputs = RiskInputs(sensitivity, exposure, control_gap, volume)
+
+        # Fan out per affected AI system where the evaluator named specific
+        # systems; otherwise emit a single org-level finding.
+        system_ids = getattr(evaluation, "affected_system_ids", None) or []
+        targets: list[tuple[uuid.UUID | None, str]] = []
+        for sid in system_ids:
+            try:
+                system_uuid = uuid.UUID(str(sid))
+            except (ValueError, TypeError):
+                continue
+            system = db.get(AISystem, system_uuid)
+            if system is None or system.organization_id != org.id:
+                continue
+            targets.append((system_uuid, f"{base_title} — {system.name}"))
+        if not targets:
+            targets = [(None, base_title)]
+
+        for system_uuid, title in targets:
+            findings_service.upsert_finding(
+                db,
+                organization_id=org.id,
+                finding_type=f"control:{control.code}",
+                title=title,
+                description=evaluation.reason,
+                risk_inputs=risk_inputs,
+                control_id=control.id,
+                asset_id=affected_asset_id,
+                ai_system_id=system_uuid,
+                data_categories=None,
+                recommended_actions=evaluation.recommended_actions,
+                evidence_refs=evaluation.evidence_ids,
+                source="scan",
+            )
+            count += 1
     return count
 
 

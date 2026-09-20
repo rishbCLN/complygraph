@@ -385,3 +385,123 @@ export type SearchResults = {
   controls: { id: string; label: string; code: string }[];
   vendors: { id: string; label: string }[];
 };
+
+// --- AI systems (AI Compliance Compiler) ---------------------------------------
+
+export type AISystem = {
+  id: string;
+  name: string;
+  description: string | null;
+  business_purpose: string | null;
+  owner: string | null;
+  system_type: string;
+  risk_domain: string | null;
+  lifecycle_stage: string;
+  review_status: string;
+  sector: string;
+  regions: string[] | null;
+  deployment_environment: string | null;
+  processes_personal_data: boolean;
+  makes_automated_decisions: boolean;
+  high_risk: boolean;
+  last_reviewed_at: string | null;
+  last_changed_at: string | null;
+  component_count: number;
+  flow_count: number;
+};
+
+export type AISystemComponent = {
+  id: string;
+  name: string;
+  component_type: string;
+  description: string | null;
+  provider: string | null;
+  region: string | null;
+  external: boolean;
+  vendor_id: string | null;
+  data_asset_id: string | null;
+  data_categories: string[] | null;
+  config: Record<string, unknown> | null;
+};
+
+export type AISystemFlow = {
+  id: string;
+  source_component_id: string | null;
+  target_component_id: string | null;
+  relation: string;
+  purpose: string | null;
+  data_categories: string[] | null;
+  contains_personal_data: boolean;
+  cross_border: boolean;
+};
+
+// How a derived fact was determined (Feature #4).
+export type FactProvenance = {
+  confidence: "DECLARED" | "OBSERVED" | "INFERRED" | "UNKNOWN";
+  band: "HIGH" | "MEDIUM" | "LOW";
+  basis: string;
+};
+
+export type AnalyzedControl = {
+  code: string;
+  title: string;
+  category: string;
+  severity: string;
+  evaluator_key: string | null;
+  scope: "system" | "org_wide";
+  applicable: boolean;
+  status: string;
+  reason: string;
+  recommended_actions: string[] | null;
+};
+
+export type ChangeTransition = { code: string; from: string; to: string };
+
+export type ChangeImpact = {
+  is_baseline: boolean;
+  previous_at: string | null;
+  regressed: ChangeTransition[];
+  improved: ChangeTransition[];
+  added: { code: string; status: string }[];
+  removed: { code: string; status: string }[];
+  unchanged: number;
+};
+
+export type AnalysisReport = {
+  system_id: string;
+  system_name: string;
+  assessment_date: string;
+  facts: Record<string, unknown>;
+  fact_provenance: Record<string, FactProvenance>;
+  summary: {
+    total: number;
+    applicable: number;
+    by_status: Record<string, number>;
+  };
+  controls: AnalyzedControl[];
+  changes: ChangeImpact;
+};
+
+export type PortfolioSystem = {
+  system_id: string;
+  system_name: string;
+  sector: string;
+  summary: {
+    total: number;
+    applicable: number;
+    by_status: Record<string, number>;
+  };
+  regressed: ChangeTransition[];
+  improved: ChangeTransition[];
+  is_baseline: boolean;
+};
+
+export type PortfolioRollup = {
+  organization: string;
+  assessment_date: string;
+  generated_at: string;
+  system_count: number;
+  systems_with_failures: number;
+  total_regressions: number;
+  systems: PortfolioSystem[];
+};

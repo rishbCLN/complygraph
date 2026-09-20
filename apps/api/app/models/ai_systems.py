@@ -68,6 +68,39 @@ class AISystem(Base, TimestampMixin):
     )
 
 
+class AISystemSnapshot(Base, TimestampMixin):
+    """A point-in-time record of a system's per-control analysis result.
+
+    Each on-demand analysis persists one snapshot capturing the status of every
+    AI-scoped control (plus the derived facts) for the system. Comparing the two
+    most recent snapshots yields the change-impact view: which controls newly
+    fail, which were resolved, and which regressed since the last analysis. This
+    turns a static point-in-time posture into an auditable trail of drift.
+    """
+
+    __tablename__ = "ai_system_snapshots"
+    __table_args__ = (
+        Index("ix_ai_snapshots_system", "ai_system_id"),
+        Index("ix_ai_snapshots_system_created", "ai_system_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    ai_system_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("ai_systems.id", ondelete="CASCADE"), nullable=False
+    )
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    # ISO date the analysis was run "as of" (effective-date aware).
+    assessment_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # {control_code: status} for every AI-scoped control at snapshot time.
+    control_statuses: Mapped[dict | None] = mapped_column(JSONB)
+    # Derived facts at snapshot time (for explaining *why* a status changed).
+    facts: Mapped[dict | None] = mapped_column(JSONB)
+    # Rollup counts by status, e.g. {"FAIL": 2, "PASS": 5}.
+    summary: Mapped[dict | None] = mapped_column(JSONB)
+
+
 class AISystemComponent(Base, TimestampMixin):
     """A node in an AI system's architecture graph (model, data store, vendor, ...)."""
 

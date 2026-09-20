@@ -20,8 +20,9 @@ def finding_fingerprint(
     control_id: uuid.UUID | None,
     asset_id: uuid.UUID | None,
     finding_type: str,
+    ai_system_id: uuid.UUID | None = None,
 ) -> str:
-    raw = f"{control_id}|{asset_id}|{finding_type}"
+    raw = f"{control_id}|{asset_id}|{finding_type}|{ai_system_id}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
 
 
@@ -37,6 +38,7 @@ def upsert_finding(
     asset_id: uuid.UUID | None = None,
     data_flow_id: uuid.UUID | None = None,
     vendor_id: uuid.UUID | None = None,
+    ai_system_id: uuid.UUID | None = None,
     data_categories: str | None = None,
     recommended_actions: list[str] | None = None,
     evidence_refs: list[str] | None = None,
@@ -45,7 +47,7 @@ def upsert_finding(
     due_in_days: int = 30,
 ) -> Finding:
     """Create or update a finding using a deterministic fingerprint for dedup."""
-    fingerprint = finding_fingerprint(control_id, asset_id, finding_type)
+    fingerprint = finding_fingerprint(control_id, asset_id, finding_type, ai_system_id)
     risk = compute_risk(risk_inputs)
 
     existing = db.scalar(
@@ -68,6 +70,7 @@ def upsert_finding(
         existing.asset_id = asset_id or existing.asset_id
         existing.data_flow_id = data_flow_id or existing.data_flow_id
         existing.vendor_id = vendor_id or existing.vendor_id
+        existing.ai_system_id = ai_system_id or existing.ai_system_id
         if existing.status in {FindingStatus.RESOLVED.value, FindingStatus.FALSE_POSITIVE.value}:
             # Problem re-detected after resolution -> reopen.
             existing.status = FindingStatus.OPEN.value
@@ -81,6 +84,7 @@ def upsert_finding(
         asset_id=asset_id,
         data_flow_id=data_flow_id,
         vendor_id=vendor_id,
+        ai_system_id=ai_system_id,
         title=title,
         description=description,
         severity=risk.severity,

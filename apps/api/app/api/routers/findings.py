@@ -16,6 +16,7 @@ from app.core.audit import record_audit
 from app.core.database import get_db
 from app.core.enums import FindingStatus
 from app.core.rbac import MANAGE_FINDINGS, RUN_AI
+from app.models.ai_systems import AISystem
 from app.models.findings import Finding
 from app.models.inventory import DataAsset
 from app.models.regulatory import Control
@@ -42,6 +43,8 @@ class FindingOut(BaseModel):
     asset_id: str | None
     asset_name: str | None
     vendor_id: str | None
+    ai_system_id: str | None
+    ai_system_name: str | None
     owner: str | None
     resolution_note: str | None
     detected_at: datetime | None
@@ -61,6 +64,7 @@ class AssignRequest(BaseModel):
 def _out(db: Session, f: Finding) -> FindingOut:
     control = db.get(Control, f.control_id) if f.control_id else None
     asset = db.get(DataAsset, f.asset_id) if f.asset_id else None
+    ai_system = db.get(AISystem, f.ai_system_id) if f.ai_system_id else None
     return FindingOut(
         id=str(f.id),
         title=f.title,
@@ -78,6 +82,8 @@ def _out(db: Session, f: Finding) -> FindingOut:
         asset_id=str(f.asset_id) if f.asset_id else None,
         asset_name=asset.display_name or asset.name if asset else None,
         vendor_id=str(f.vendor_id) if f.vendor_id else None,
+        ai_system_id=str(f.ai_system_id) if f.ai_system_id else None,
+        ai_system_name=ai_system.name if ai_system else None,
         owner=f.owner,
         resolution_note=f.resolution_note,
         detected_at=f.detected_at,
@@ -93,6 +99,7 @@ def list_findings(
     severity: str | None = None,
     status: str | None = None,
     control_id: uuid.UUID | None = None,
+    ai_system_id: uuid.UUID | None = None,
     page: int = 1,
     page_size: int = 50,
 ) -> Page[FindingOut]:
@@ -103,6 +110,8 @@ def list_findings(
         stmt = stmt.where(Finding.status == status)
     if control_id:
         stmt = stmt.where(Finding.control_id == control_id)
+    if ai_system_id:
+        stmt = stmt.where(Finding.ai_system_id == ai_system_id)
     stmt = stmt.order_by(Finding.risk_score.desc(), Finding.detected_at.desc())
     rows, total = paginate(db, stmt, page, page_size)
     return Page(items=[_out(db, f) for f in rows], total=total, page=page, page_size=page_size)

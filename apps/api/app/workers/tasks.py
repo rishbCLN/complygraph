@@ -26,6 +26,33 @@ def run_scan_task(scan_id: str) -> dict:
         db.close()
 
 
+@celery_app.task(name="complygraph.analyze_ai_systems")
+def analyze_ai_systems_task(organization_id: str) -> dict:
+    """Analyze every AI system in an organization on a worker.
+
+    Safe to run eagerly (in-process) or dispatched to a worker; used by the bulk
+    analyze endpoint so a large inventory does not block the request thread.
+    """
+    from app.models.identity import Organization
+    from app.services.assessment_service import analyze_all_systems
+
+    db = SessionLocal()
+    try:
+        org = db.get(Organization, uuid.UUID(organization_id))
+        if org is None:
+            return {"organization_id": organization_id, "error": "not_found"}
+        rollup = analyze_all_systems(db, org, persist=True)
+        db.commit()
+        return {
+            "organization_id": organization_id,
+            "system_count": rollup["system_count"],
+            "systems_with_failures": rollup["systems_with_failures"],
+            "total_regressions": rollup["total_regressions"],
+        }
+    finally:
+        db.close()
+
+
 @celery_app.task(name="complygraph.scheduled_rescans")
 def scheduled_rescans_task() -> dict:
     """Enqueue rescans for connectors that have gone stale.

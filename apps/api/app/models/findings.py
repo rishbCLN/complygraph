@@ -21,6 +21,7 @@ class Finding(Base, TimestampMixin):
         Index("ix_findings_severity", "severity"),
         Index("ix_findings_control", "control_id"),
         Index("ix_findings_fingerprint", "fingerprint"),
+        Index("ix_findings_ai_system", "ai_system_id"),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
@@ -38,6 +39,11 @@ class Finding(Base, TimestampMixin):
     )
     vendor_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID(), ForeignKey("vendors.id", ondelete="SET NULL")
+    )
+    # AI system this finding is attributed to (for AI-scoped controls). Null for
+    # org-level findings (e.g. DPDP data-governance controls).
+    ai_system_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("ai_systems.id", ondelete="SET NULL")
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)

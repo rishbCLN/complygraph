@@ -230,22 +230,30 @@ def assess_all(db: Session, org: Organization) -> list[tuple[Control, ControlAss
     return results
 
 
-def analyze_system(db: Session, org: Organization, system) -> dict:
+def analyze_system(
+    db: Session, org: Organization, system, persist: bool = False
+) -> dict:
     """Analyze a single AI system on demand and return a per-system report.
 
     Runs the deterministic engine with the control context scoped to just this
     system's derived facts, so applicability and every AI evaluator answer
-    "how does *this* system do?". Read-only: nothing is persisted here.
+    "how does *this* system do?".
 
     Controls are split into ``system``-scoped (their applies_to narrows to a
     sector/type/condition) and ``org_wide`` (e.g. CERT-In) so the UI can show why
     each control is in play. Only AI-scoped controls are returned; org-level DPDP
     controls are covered by the org-wide assessment.
+
+    When ``persist`` is True, the run is recorded as an ``AISystemSnapshot`` and
+    the report includes a ``changes`` block diffing this run against the previous
+    snapshot (newly failing / resolved / regressed / improved controls). When
+    False the analysis is read-only and ``changes`` is diffed against the latest
+    stored snapshot without writing a new one.
     """
     from app.controls.applicability import is_ai_scoped, is_specific_scope
     from app.services import ai_system_service
 
-    facts = ai_system_service.derive_facts(db, system)
+    facts, provenance = ai_system_service.derive_facts_with_provenance(db, system)
     ctx = build_context(db, org)
     ctx.ai_systems = [facts]  # scope evaluation to this system only
 
@@ -289,28 +297,215 @@ def analyze_system(db: Session, org: Organization, system) -> dict:
         )
 
     # Stable ordering: failing/attention items first, then by code.
-    _order = {
-        ControlStatus.FAIL.value: 0,
-        ControlStatus.NO_EVIDENCE.value: 1,
-        ControlStatus.NEEDS_REVIEW.value: 2,
-        ControlStatus.PARTIAL.value: 3,
-        ControlStatus.UPCOMING.value: 4,
-        ControlStatus.PASS.value: 5,
-        ControlStatus.NOT_APPLICABLE.value: 6,
+    entries.sort(key=lambda e: (_STATUS_ORDER.get(e["status"], 9), e["code"]))
+
+    control_statuses = {e["code"]: e["status"] for e in entries}
+    summary = {
+        "total": len(entries),
+        "applicable": applicable,
+        "by_status": by_status,
     }
-    entries.sort(key=lambda e: (_order.get(e["status"], 9), e["code"]))
+
+    changes = _diff_against_last_snapshot(db, system, control_statuses)
+    if persist:
+        _record_snapshot(db, org, system, ctx.assessment_date, control_statuses, facts, summary)
 
     return {
         "system_id": str(system.id),
         "system_name": system.name,
         "assessment_date": ctx.assessment_date.isoformat(),
         "facts": facts,
-        "summary": {
-            "total": len(entries),
+        "fact_provenance": provenance,
+        "summary": summary,
+        "controls": entries,
+        "changes": changes,
+    }
+
+
+# Lower rank = more attention-worthy. Used for ordering AND to classify a status
+# transition as a regression (rank decreased) vs an improvement (rank increased).
+_STATUS_ORDER = {
+    ControlStatus.FAIL.value: 0,
+    ControlStatus.NO_EVIDENCE.value: 1,
+    ControlStatus.NEEDS_REVIEW.value: 2,
+    ControlStatus.PARTIAL.value: 3,
+    ControlStatus.UPCOMING.value: 4,
+    ControlStatus.PASS.value: 5,
+    ControlStatus.NOT_APPLICABLE.value: 6,
+}
+
+
+def _diff_against_last_snapshot(
+    db: Session, system, current: dict[str, str]
+) -> dict:
+    """Compare current per-control statuses to the most recent stored snapshot.
+
+    Returns a change-impact report classifying each control transition as
+    regressed (posture got worse), improved (got better), added, or removed. The
+    first-ever analysis has no baseline, so ``is_baseline`` is True and no
+    transitions are reported.
+    """
+    from app.models.ai_systems import AISystemSnapshot
+
+    last = db.scalar(
+        select(AISystemSnapshot)
+        .where(AISystemSnapshot.ai_system_id == system.id)
+        .order_by(AISystemSnapshot.created_at.desc())
+        .limit(1)
+    )
+    if last is None or not last.control_statuses:
+        return {
+            "is_baseline": True,
+            "previous_at": None,
+            "regressed": [],
+            "improved": [],
+            "added": [],
+            "removed": [],
+            "unchanged": len(current),
+        }
+
+    previous: dict[str, str] = dict(last.control_statuses)
+    regressed: list[dict] = []
+    improved: list[dict] = []
+    added: list[dict] = []
+    unchanged = 0
+
+    for code, status in current.items():
+        if code not in previous:
+            added.append({"code": code, "status": status})
+            continue
+        prev_status = previous[code]
+        if status == prev_status:
+            unchanged += 1
+            continue
+        transition = {"code": code, "from": prev_status, "to": status}
+        # Lower rank == worse. A drop in rank is a regression.
+        if _STATUS_ORDER.get(status, 9) < _STATUS_ORDER.get(prev_status, 9):
+            regressed.append(transition)
+        else:
+            improved.append(transition)
+
+    removed = [
+        {"code": code, "status": previous[code]}
+        for code in previous
+        if code not in current
+    ]
+
+    return {
+        "is_baseline": False,
+        "previous_at": last.created_at.isoformat() if last.created_at else None,
+        "regressed": regressed,
+        "improved": improved,
+        "added": added,
+        "removed": removed,
+        "unchanged": unchanged,
+    }
+
+
+def _record_snapshot(
+    db: Session, org, system, assessment_date, control_statuses, facts, summary
+) -> None:
+    """Persist a point-in-time snapshot of this system's analysis result."""
+    from app.models.ai_systems import AISystemSnapshot
+
+    db.add(
+        AISystemSnapshot(
+            ai_system_id=system.id,
+            organization_id=org.id,
+            assessment_date=assessment_date,
+            control_statuses=control_statuses,
+            facts=facts,
+            summary=summary,
+            created_at=utcnow(),
+            updated_at=utcnow(),
+        )
+    )
+    db.flush()
+
+
+def analyze_all_systems(db: Session, org: Organization, persist: bool = True) -> dict:
+    """Analyze every AI system in the org in one pass and return a rollup.
+
+    Builds the control context once and reuses it per system (scoping
+    ``ctx.ai_systems`` to each system in turn) so bulk analysis of a large
+    inventory does not rebuild the org context N times. Each system's snapshot is
+    persisted (when ``persist``) so the change-impact trail advances uniformly.
+
+    Returns a portfolio-level rollup: per-system summaries plus aggregate counts
+    of systems with any regression / any failing control, which is what a CISO
+    needs to triage an inventory rather than click through systems one by one.
+    """
+    from app.controls.applicability import is_ai_scoped, is_specific_scope
+    from app.services import ai_system_service
+    from app.models.ai_systems import AISystem
+
+    systems = list(
+        db.scalars(select(AISystem).where(AISystem.organization_id == org.id))
+    )
+    ctx = build_context(db, org)
+    controls = [c for c in db.scalars(select(Control)) if is_ai_scoped(c.applies_to)]
+
+    per_system: list[dict] = []
+    total_regressions = 0
+    systems_with_failures = 0
+
+    for system in systems:
+        facts, _ = ai_system_service.derive_facts_with_provenance(db, system)
+        ctx.ai_systems = [facts]
+
+        by_status: dict[str, int] = {}
+        control_statuses: dict[str, str] = {}
+        applicable = 0
+        for control in controls:
+            if not is_control_active(control.effective_from, ctx.assessment_date):
+                status = ControlStatus.UPCOMING.value
+            else:
+                status = evaluate(
+                    control.evaluator_key, ctx, control.code, control.applies_to
+                ).status
+            control_statuses[control.code] = status
+            if status != ControlStatus.NOT_APPLICABLE.value:
+                applicable += 1
+            by_status[status] = by_status.get(status, 0) + 1
+
+        summary = {
+            "total": len(control_statuses),
             "applicable": applicable,
             "by_status": by_status,
-        },
-        "controls": entries,
+        }
+        changes = _diff_against_last_snapshot(db, system, control_statuses)
+        if persist:
+            _record_snapshot(
+                db, org, system, ctx.assessment_date, control_statuses, facts, summary
+            )
+
+        failing = by_status.get(ControlStatus.FAIL.value, 0) + by_status.get(
+            ControlStatus.NO_EVIDENCE.value, 0
+        )
+        if failing:
+            systems_with_failures += 1
+        total_regressions += len(changes["regressed"])
+
+        per_system.append(
+            {
+                "system_id": str(system.id),
+                "system_name": system.name,
+                "sector": system.sector,
+                "summary": summary,
+                "regressed": changes["regressed"],
+                "improved": changes["improved"],
+                "is_baseline": changes["is_baseline"],
+            }
+        )
+
+    return {
+        "organization": org.name,
+        "assessment_date": ctx.assessment_date.isoformat(),
+        "generated_at": utcnow().isoformat(),
+        "system_count": len(systems),
+        "systems_with_failures": systems_with_failures,
+        "total_regressions": total_regressions,
+        "systems": per_system,
     }
 
 

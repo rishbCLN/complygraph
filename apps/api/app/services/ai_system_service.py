@@ -27,6 +27,7 @@ from app.core.enums import (
     AISystemType,
     ArchEdgeRelation,
     ComponentType,
+    FactConfidence,
 )
 from app.core.errors import NotFoundError, ValidationError
 from app.models.ai_systems import AISystem, AISystemComponent, AISystemFlow
@@ -108,6 +109,23 @@ def derive_facts(db: Session, system: AISystem) -> dict:
     and flows. Nothing here infers a legal conclusion; it only reports observable
     architecture facts with explicit reasoning strings.
     """
+    return derive_facts_with_provenance(db, system)[0]
+
+
+def derive_facts_with_provenance(
+    db: Session, system: AISystem
+) -> tuple[dict, dict]:
+    """Like :func:`derive_facts`, but also returns per-fact provenance.
+
+    Returns ``(facts, provenance)`` where ``provenance[key]`` is
+    ``{"confidence": FactConfidence, "band": ConfidenceBand, "basis": str}``.
+
+    A structural fact that is True because a component/flow was found is
+    ``OBSERVED``; one that is False because nothing was found is ``INFERRED``
+    (absence of evidence). When no architecture is recorded at all, structural
+    facts drop to ``UNKNOWN`` so a reviewer is not misled into reading "no
+    external inference" as a positive assurance when it just means "no data".
+    """
     components = list_components(db, system.id)
     flows = list_flows(db, system.id)
 
@@ -131,7 +149,8 @@ def derive_facts(db: Session, system: AISystem) -> dict:
 
     vendor_ids = {c.vendor_id for c in components if c.vendor_id}
 
-    return {
+    has_architecture = len(components) > 0
+    facts = {
         "system_id": str(system.id),
         "name": system.name,
         "sector": system.sector,
@@ -156,6 +175,77 @@ def derive_facts(db: Session, system: AISystem) -> dict:
         "owner_assigned": bool(system.owner),
         "is_reviewed": system.review_status == AISystemReviewStatus.REVIEWED.value,
     }
+
+    def structural(present: bool, basis_present: str, basis_absent: str) -> dict:
+        """Provenance for a boolean derived from the presence/absence of graph data."""
+        if present:
+            conf = FactConfidence.OBSERVED
+            basis = basis_present
+        elif not has_architecture:
+            conf = FactConfidence.UNKNOWN
+            basis = "No architecture recorded for this system."
+        else:
+            conf = FactConfidence.INFERRED
+            basis = basis_absent
+        return {"confidence": conf.value, "band": conf.band.value, "basis": basis}
+
+    def declared(basis: str) -> dict:
+        return {
+            "confidence": FactConfidence.DECLARED.value,
+            "band": FactConfidence.DECLARED.band.value,
+            "basis": basis,
+        }
+
+    provenance = {
+        "sector": declared("Declared on the system record."),
+        "system_type": declared("Declared on the system record."),
+        "lifecycle_stage": declared("Declared on the system record."),
+        "deployment_environment": declared("Declared on the system record."),
+        "processes_personal_data": declared("Declared on the system record."),
+        "makes_automated_decisions": declared("Declared on the system record."),
+        "high_risk": declared("Declared on the system record."),
+        "owner_assigned": declared(
+            "Owner is set on the system record."
+            if system.owner
+            else "No owner recorded on the system."
+        ),
+        "is_reviewed": declared(f"Review status is '{system.review_status}'."),
+        "is_production": declared(f"Lifecycle stage is '{system.lifecycle_stage}'."),
+        "has_vendors": structural(
+            len(vendor_ids) > 0,
+            f"{len(vendor_ids)} component(s) reference a registered vendor.",
+            "No component references a registered vendor.",
+        ),
+        "has_external_components": structural(
+            len(external_components) > 0,
+            f"{len(external_components)} component(s) are marked external.",
+            "No component is marked external.",
+        ),
+        "has_external_inference": structural(
+            len(external_inference) > 0,
+            f"{len(external_inference)} model/agent component(s) run externally.",
+            "No external model/agent component found.",
+        ),
+        "uses_external_observability": structural(
+            len(observability) > 0,
+            f"{len(observability)} external service/API component(s) present.",
+            "No external service/API (observability) component found.",
+        ),
+        "has_cross_border_flow": structural(
+            any(f.cross_border for f in flows),
+            "At least one flow is marked cross-border.",
+            "No flow is marked cross-border."
+            if flows
+            else "No data flows recorded for this system.",
+        ),
+        "non_india_regions": structural(
+            len(non_india_regions) > 0,
+            f"Regions outside India present: {', '.join(non_india_regions)}.",
+            "All recorded regions are India (or none recorded).",
+        ),
+    }
+
+    return facts, provenance
 
 
 # --- Mutations ------------------------------------------------------------------
@@ -268,6 +358,30 @@ def _resolve_vendor_id(
         if vendor is not None:
             return vendor.id
     return None
+
+
+def add_component(
+    db: Session, org_id: uuid.UUID, user_id: uuid.UUID, system: AISystem, spec: dict
+) -> AISystemComponent:
+    """Add a single component to an existing system and mark the system changed.
+
+    Used both by the import path and by incremental architecture edits. Touching
+    ``last_changed_at`` keeps the change-impact trail honest: the next analysis
+    knows the architecture moved since the last snapshot.
+    """
+    component = _add_component(db, org_id, system, spec)
+    system.last_changed_at = utcnow()
+    system.updated_at = utcnow()
+    record_audit(
+        db,
+        action="ai_system.component_added",
+        organization_id=org_id,
+        user_id=user_id,
+        entity_type="ai_system",
+        entity_id=system.id,
+        metadata={"component": component.name, "type": component.component_type},
+    )
+    return component
 
 
 def _add_component(

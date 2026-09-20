@@ -74,6 +74,31 @@ class ConfidenceBand(str, Enum):
     LOW = "LOW"
 
 
+class FactConfidence(str, Enum):
+    """Provenance of an applicability fact: HOW the engine knows it.
+
+    An audit conclusion is only as trustworthy as the facts under it. A
+    localisation FAIL built on a DECLARED region is far more defensible than a
+    NO_EVIDENCE built on INFERRED absence of a component, which may just mean the
+    architecture was never fully recorded. The engine reports this distinction so
+    a reviewer can tell "we checked and it's true" from "we didn't find it".
+    """
+
+    DECLARED = "DECLARED"  # explicitly asserted on the system record (certain)
+    OBSERVED = "OBSERVED"  # positively derived from a concrete component/flow
+    INFERRED = "INFERRED"  # derived from ABSENCE of evidence (weaker)
+    UNKNOWN = "UNKNOWN"  # no basis to determine (e.g. no architecture recorded)
+
+    @property
+    def band(self) -> "ConfidenceBand":
+        return {
+            "DECLARED": ConfidenceBand.HIGH,
+            "OBSERVED": ConfidenceBand.HIGH,
+            "INFERRED": ConfidenceBand.MEDIUM,
+            "UNKNOWN": ConfidenceBand.LOW,
+        }[self.value]
+
+
 class FlowType(str, Enum):
     INTERNAL = "INTERNAL"
     PROCESSOR = "PROCESSOR"
