@@ -32,8 +32,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import utcnow
-from app.core.enums import CitationStatus, LegalStatus, RegulationStatus
-from app.models.regulatory import Control, Obligation, Regulation
+from app.core.enums import CitationStatus, LegalStatus, MappingRelation, RegulationStatus
+from app.models.regulatory import Control, ControlMapping, Obligation, Regulation
 
 PACK_NAME = "india-ai-compliance"
 PACK_VERSION = "0.1"
@@ -364,10 +364,108 @@ def _seed_one_pack(db: Session, pack: dict) -> Regulation:
     return regulation
 
 
+# --- Cross-framework mappings ---------------------------------------------------
+# System (knowledge-base) mappings linking the DPDP control library to the RBI /
+# CERT-In / MeitY packs. (source_code, target_code, relation, confidence, rationale)
+# Direction: source -> target. Coverage relations (EQUIVALENT / SUPERSET) drive
+# evidence reuse; RELATED is informational only.
+_MAPPINGS: list[tuple[str, str, MappingRelation, float, str]] = [
+    (
+        "DPDP-SECURITY-003",
+        "CERTIN-LOGS-001",
+        MappingRelation.RELATED,
+        0.8,
+        "Both require logging/monitoring of access; CERT-In additionally fixes a "
+        "180-day India-resident retention period, so DPDP evidence is related but "
+        "does not by itself prove the CERT-In retention duration.",
+    ),
+    (
+        "DPDP-BREACH-001",
+        "CERTIN-INCIDENT-001",
+        MappingRelation.RELATED,
+        0.75,
+        "Both concern breach/incident response. CERT-In imposes a specific 6-hour "
+        "reporting pathway to CERT-In that DPDP breach handling does not, so this "
+        "is related rather than equivalent.",
+    ),
+    (
+        "DPDP-CROSSBORDER-001",
+        "RBI-LOCALIZATION-001",
+        MappingRelation.RELATED,
+        0.7,
+        "Both govern where data may reside/flow. RBI localisation is an absolute "
+        "storage-in-India rule for payment data; DPDP cross-border governance is "
+        "broader and restriction-list based.",
+    ),
+    (
+        "DPDP-VENDOR-001",
+        "RBI-VENDOR-001",
+        MappingRelation.SUPERSET,
+        0.85,
+        "DPDP processor/vendor governance (valid contract, governed processing) "
+        "broadly covers the RBI vendor expectation; RBI adds BFSI data-residency "
+        "and audit-right specifics that still warrant review.",
+    ),
+    (
+        "DPDP-SDF-001",
+        "MEITY-INVENTORY-001",
+        MappingRelation.RELATED,
+        0.6,
+        "A DPIA process and an AI-system inventory both support accountability, "
+        "but address different artefacts.",
+    ),
+    (
+        "DPDP-GOVERNANCE-001",
+        "MEITY-OVERSIGHT-001",
+        MappingRelation.RELATED,
+        0.5,
+        "Both sit under accountability/oversight; the DPDP contact-information "
+        "control does not establish human oversight of automated decisions.",
+    ),
+]
+
+
+def seed_mappings(db: Session) -> int:
+    """Idempotently seed the system control-mapping graph. Returns count added."""
+    added = 0
+    for source_code, target_code, relation, confidence, rationale in _MAPPINGS:
+        source = db.scalar(select(Control).where(Control.code == source_code))
+        target = db.scalar(select(Control).where(Control.code == target_code))
+        if source is None or target is None:
+            continue
+        existing = db.scalar(
+            select(ControlMapping).where(
+                ControlMapping.source_control_id == source.id,
+                ControlMapping.target_control_id == target.id,
+                ControlMapping.organization_id.is_(None),
+            )
+        )
+        if existing is not None:
+            continue
+        db.add(
+            ControlMapping(
+                source_control_id=source.id,
+                target_control_id=target.id,
+                relation_type=relation.value,
+                rationale=rationale,
+                confidence=confidence,
+                organization_id=None,
+                created_by=None,
+                created_at=utcnow(),
+                updated_at=utcnow(),
+            )
+        )
+        added += 1
+    db.flush()
+    return added
+
+
 def seed_packs(db: Session) -> list[Regulation]:
     """Idempotently seed the RBI, CERT-In and MeitY packs."""
-    return [
+    regs = [
         _seed_one_pack(db, _rbi_pack()),
         _seed_one_pack(db, _certin_pack()),
         _seed_one_pack(db, _meity_pack()),
     ]
+    seed_mappings(db)
+    return regs

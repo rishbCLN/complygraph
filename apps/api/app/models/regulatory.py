@@ -106,6 +106,44 @@ class ControlAssetScope(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class ControlMapping(Base, TimestampMixin):
+    """A cross-framework relationship between two controls.
+
+    Mappings form the control-equivalence graph across regulatory packs (e.g.
+    DPDP logging control <-> CERT-In log-retention control). A NULL
+    organization_id denotes a system/knowledge-base mapping seeded with the
+    packs; a set organization_id denotes an org-authored mapping. This lets a
+    tenant extend the shipped mapping graph without mutating shared knowledge.
+    """
+
+    __tablename__ = "control_mappings"
+    __table_args__ = (
+        Index("ix_mapping_source", "source_control_id"),
+        Index("ix_mapping_target", "target_control_id"),
+        Index("ix_mapping_org", "organization_id"),
+    )
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    source_control_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("controls.id", ondelete="CASCADE"), nullable=False
+    )
+    target_control_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("controls.id", ondelete="CASCADE"), nullable=False
+    )
+    relation_type: Mapped[str] = mapped_column(String(40), default="RELATED", nullable=False)
+    rationale: Mapped[str | None] = mapped_column(Text)
+    # 0..1 confidence in the mapping. Seeded mappings default to a conservative
+    # value; org-authored ones default to human-asserted (1.0).
+    confidence: Mapped[float] = mapped_column(Float, default=1.0)
+    # NULL => system/knowledge-base mapping; set => tenant-authored.
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("organizations.id", ondelete="CASCADE")
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("users.id", ondelete="SET NULL")
+    )
+
+
 class ControlAssessment(Base, TimestampMixin):
     __tablename__ = "control_assessments"
     __table_args__ = (

@@ -29,6 +29,7 @@ from app.models.regulatory import (
     Control,
     ControlAssessment,
     ControlAssetScope,
+    ControlMapping,
     Obligation,
     Regulation,
 )
@@ -48,6 +49,7 @@ __all__ = [
     "ControlAssessment",
     "ControlAssetScope",
     "ControlEvidence",
+    "ControlMapping",
     "DataAsset",
     "DataFlow",
     "DataSubjectRequest",

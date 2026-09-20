@@ -19,7 +19,7 @@ from app.core.rbac import ASSESS_CONTROLS
 from app.models.evidence import ControlEvidence, Evidence
 from app.models.findings import Finding
 from app.models.regulatory import Control, ControlAssessment, Obligation, Regulation
-from app.services import assessment_service
+from app.services import assessment_service, mapping_service
 from app.services.assessment_service import get_assessment_date
 from app.services.evidence_service import compute_freshness
 
@@ -162,6 +162,67 @@ def get_control_evidence(
             )
         )
     return out
+
+
+class MappedControlOut(BaseModel):
+    id: str
+    code: str
+    title: str
+    category: str
+    regulation_id: str | None
+    regulation_name: str | None
+
+
+class ControlMappingOut(BaseModel):
+    id: str
+    relation_type: str
+    rationale: str | None
+    confidence: float
+    system: bool
+    direction: str
+    other: MappedControlOut
+
+
+class ReusableEvidenceOut(BaseModel):
+    evidence_id: str
+    evidence_name: str
+    evidence_type: str
+    status: str
+    relation_type_on_source: str
+    via_mapping_id: str
+    mapping_relation: str
+    mapping_confidence: float
+    source_control: MappedControlOut
+    requires_review: bool
+
+
+@router.get("/{control_id}/mappings", response_model=list[ControlMappingOut])
+def get_control_mappings(
+    control_id: uuid.UUID,
+    ctx: AuthContext = Depends(get_current_context),
+    db: Session = Depends(get_db),
+) -> list[ControlMappingOut]:
+    """Cross-framework controls mapped to/from this control."""
+    return [
+        ControlMappingOut(**m) for m in mapping_service.mappings_for_control(db, ctx.organization_id, control_id)
+    ]
+
+
+@router.get("/{control_id}/reusable-evidence", response_model=list[ReusableEvidenceOut])
+def get_reusable_evidence(
+    control_id: uuid.UUID,
+    ctx: AuthContext = Depends(get_current_context),
+    db: Session = Depends(get_db),
+) -> list[ReusableEvidenceOut]:
+    """Evidence collected for mapped controls that could satisfy this control.
+
+    Advisory only: every candidate is flagged requires_review and must be
+    explicitly linked before it counts toward this control's assessment.
+    """
+    return [
+        ReusableEvidenceOut(**e)
+        for e in mapping_service.reusable_evidence(db, ctx.organization_id, control_id)
+    ]
 
 
 @router.get("/{control_id}/assessment", response_model=AssessmentOut | None)

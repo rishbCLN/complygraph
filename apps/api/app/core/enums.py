@@ -332,3 +332,23 @@ class OwnerType(str, Enum):
     ENGINEERING = "ENGINEERING"
     LEGAL = "LEGAL"
     BUSINESS = "BUSINESS"
+
+
+class MappingRelation(str, Enum):
+    """How a source control relates to a target control in another framework.
+
+    Direction matters for evidence reuse: evidence proving the SOURCE control can
+    be *reused* to help satisfy the TARGET control only when the source fully
+    covers the target (EQUIVALENT or SUPERSET). RELATED / SUBSET mappings are
+    informational and always require human review before reuse.
+    """
+
+    EQUIVALENT = "EQUIVALENT"  # source and target require the same thing
+    SUPERSET = "SUPERSET"  # source is broader; satisfying it satisfies the target
+    SUBSET = "SUBSET"  # source is narrower; only partially covers the target
+    RELATED = "RELATED"  # thematically related, no coverage claim
+
+    @property
+    def source_covers_target(self) -> bool:
+        """Whether satisfying the source control can, subject to review, satisfy the target."""
+        return self in (MappingRelation.EQUIVALENT, MappingRelation.SUPERSET)
