@@ -230,6 +230,90 @@ def assess_all(db: Session, org: Organization) -> list[tuple[Control, ControlAss
     return results
 
 
+def analyze_system(db: Session, org: Organization, system) -> dict:
+    """Analyze a single AI system on demand and return a per-system report.
+
+    Runs the deterministic engine with the control context scoped to just this
+    system's derived facts, so applicability and every AI evaluator answer
+    "how does *this* system do?". Read-only: nothing is persisted here.
+
+    Controls are split into ``system``-scoped (their applies_to narrows to a
+    sector/type/condition) and ``org_wide`` (e.g. CERT-In) so the UI can show why
+    each control is in play. Only AI-scoped controls are returned; org-level DPDP
+    controls are covered by the org-wide assessment.
+    """
+    from app.controls.applicability import is_ai_scoped, is_specific_scope
+    from app.services import ai_system_service
+
+    facts = ai_system_service.derive_facts(db, system)
+    ctx = build_context(db, org)
+    ctx.ai_systems = [facts]  # scope evaluation to this system only
+
+    controls = list(db.scalars(select(Control)))
+    entries: list[dict] = []
+    by_status: dict[str, int] = {}
+    applicable = 0
+
+    for control in controls:
+        if not is_ai_scoped(control.applies_to):
+            continue
+        if not is_control_active(control.effective_from, ctx.assessment_date):
+            evaluation = ControlEvaluation(
+                status=ControlStatus.UPCOMING.value,
+                score=0.0,
+                reason=(
+                    "This control is not yet in force at the current assessment date. "
+                    "Displayed for preparation, not as a current failure."
+                ),
+            )
+        else:
+            evaluation = evaluate(control.evaluator_key, ctx, control.code, control.applies_to)
+
+        is_applicable = evaluation.status != ControlStatus.NOT_APPLICABLE.value
+        if is_applicable:
+            applicable += 1
+        by_status[evaluation.status] = by_status.get(evaluation.status, 0) + 1
+        entries.append(
+            {
+                "code": control.code,
+                "title": control.title,
+                "category": control.category,
+                "severity": control.severity_default,
+                "evaluator_key": control.evaluator_key,
+                "scope": "system" if is_specific_scope(control.applies_to) else "org_wide",
+                "applicable": is_applicable,
+                "status": evaluation.status,
+                "reason": evaluation.reason,
+                "recommended_actions": evaluation.recommended_actions,
+            }
+        )
+
+    # Stable ordering: failing/attention items first, then by code.
+    _order = {
+        ControlStatus.FAIL.value: 0,
+        ControlStatus.NO_EVIDENCE.value: 1,
+        ControlStatus.NEEDS_REVIEW.value: 2,
+        ControlStatus.PARTIAL.value: 3,
+        ControlStatus.UPCOMING.value: 4,
+        ControlStatus.PASS.value: 5,
+        ControlStatus.NOT_APPLICABLE.value: 6,
+    }
+    entries.sort(key=lambda e: (_order.get(e["status"], 9), e["code"]))
+
+    return {
+        "system_id": str(system.id),
+        "system_name": system.name,
+        "assessment_date": ctx.assessment_date.isoformat(),
+        "facts": facts,
+        "summary": {
+            "total": len(entries),
+            "applicable": applicable,
+            "by_status": by_status,
+        },
+        "controls": entries,
+    }
+
+
 def latest_assessment(db: Session, org_id: uuid.UUID, control_id: uuid.UUID) -> ControlAssessment | None:
     return db.scalar(
         select(ControlAssessment)

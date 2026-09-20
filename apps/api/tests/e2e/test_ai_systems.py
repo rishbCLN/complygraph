@@ -324,6 +324,102 @@ def test_facts_for_bare_system_have_no_false_positives(admin_client):
     assert facts["is_reviewed"] is False
 
 
+# --- Per-system analysis --------------------------------------------------------
+
+
+def test_analyze_system_returns_scoped_control_report(admin_client):
+    """POST /systems/{id}/analyze returns per-control statuses + reasons scoped to
+    the system, driven by its derived facts."""
+    vendor_name = _first_vendor_name(admin_client)
+    body = {
+        "system": {
+            "name": "Analyze Me BFSI",
+            "system_type": "LLM",
+            "sector": "BFSI",
+            "lifecycle_stage": "PRODUCTION",
+            "processes_personal_data": True,
+            "makes_automated_decisions": True,
+            "high_risk": True,
+            "regions": ["India"],
+        },
+        "components": [
+            {
+                "key": "llm",
+                "name": "Hosted LLM",
+                "type": "MODEL",
+                "external": True,
+                "region": "us",
+                "vendor": vendor_name,
+            },
+            {"key": "apm", "name": "APM", "type": "SERVICE", "external": True, "region": "us"},
+            {"key": "store", "name": "Store", "type": "DATA_STORE", "region": "India"},
+        ],
+        "flows": [
+            {"from": "store", "to": "llm", "relation": "SENDS_TO", "cross_border": True},
+        ],
+    }
+    sid = admin_client.post(f"{PREFIX}/systems/import", json=body).json()["id"]
+
+    resp = admin_client.post(f"{PREFIX}/systems/{sid}/analyze")
+    assert resp.status_code == 200, resp.text
+    report = resp.json()
+
+    assert report["system_id"] == sid
+    assert report["facts"]["sector"] == "bfsi"
+    assert report["summary"]["total"] > 0
+    assert isinstance(report["summary"]["by_status"], dict)
+
+    status = {c["code"]: c["status"] for c in report["controls"]}
+    assert status["RBI-LOCALIZATION-001"] == "FAIL"
+    assert status["RBI-LOGGING-001"] == "NEEDS_REVIEW"
+    assert status["RBI-INFERENCE-001"] == "NEEDS_REVIEW"
+    assert status["MEITY-BIAS-001"] == "NO_EVIDENCE"
+
+    # Each entry carries a human-readable reason and a scope tag.
+    localization = next(c for c in report["controls"] if c["code"] == "RBI-LOCALIZATION-001")
+    assert localization["reason"]
+    assert localization["scope"] == "system"
+    assert localization["applicable"] is True
+
+
+def test_analyze_general_system_gates_bfsi_controls(admin_client):
+    """A general, low-risk system reports BFSI/condition-scoped controls as
+    NOT_APPLICABLE rather than as findings."""
+    body = {
+        "system": {
+            "name": "Analyze Me General",
+            "system_type": "RAG",
+            "sector": "general",
+            "lifecycle_stage": "DEVELOPMENT",
+            "processes_personal_data": False,
+            "makes_automated_decisions": False,
+            "high_risk": False,
+            "regions": ["India"],
+        },
+        "components": [{"key": "idx", "name": "Index", "type": "DATA_STORE", "region": "India"}],
+        "flows": [],
+    }
+    sid = admin_client.post(f"{PREFIX}/systems/import", json=body).json()["id"]
+    report = admin_client.post(f"{PREFIX}/systems/{sid}/analyze").json()
+    status = {c["code"]: c["status"] for c in report["controls"]}
+
+    assert status["RBI-LOCALIZATION-001"] == "NOT_APPLICABLE"
+    assert status["RBI-VENDOR-001"] == "NOT_APPLICABLE"
+    assert status["MEITY-OVERSIGHT-001"] == "NOT_APPLICABLE"
+    # Org-wide controls still evaluate.
+    assert status["CERTIN-LOGS-001"] == "NO_EVIDENCE"
+
+
+def test_analyze_requires_capability(admin_client, client):
+    """A viewer (no assess_controls capability) cannot analyze a system."""
+    sid = admin_client.post(
+        f"{PREFIX}/systems", json={"name": "Perm Check", "system_type": "LLM", "sector": "bfsi"}
+    ).json()["id"]
+    viewer = _viewer_client(client)
+    resp = viewer.post(f"{PREFIX}/systems/{sid}/analyze")
+    assert resp.status_code == 403, resp.text
+
+
 # --- RBAC -----------------------------------------------------------------------
 
 

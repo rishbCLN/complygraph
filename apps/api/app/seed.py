@@ -37,6 +37,7 @@ from app.core.enums import (
     LegalStatus,
     Role,
 )
+from app.models.ai_systems import AISystem
 from app.models.evidence import ControlEvidence, Evidence
 from app.models.identity import Membership, Organization, User
 from app.models.inventory import Connector, DataAsset, DataFlow, ProcessingActivity, Vendor
@@ -731,6 +732,176 @@ def seed_evidence_and_ops(db: Session, org: Organization) -> None:
     db.flush()
 
 
+def seed_ai_systems(db: Session, org: Organization) -> None:
+    """Seed a realistic AI-system inventory so the applicability engine has
+    something to compile against on first launch.
+
+    AsterLane runs a merchant-financing product, so it operates a BFSI credit
+    decisioning copilot (a high-risk, production LLM with an externally hosted
+    model, external observability and a foreign model vendor) alongside a purely
+    internal documentation assistant. The contrast is deliberate: the BFSI system
+    trips the RBI / MeitY controls, while the internal tool keeps the BFSI- and
+    condition-scoped controls NOT_APPLICABLE — demonstrating applicability, not a
+    blanket rule sweep.
+    """
+    from app.services import ai_system_service
+
+    if db.scalar(select(AISystem).where(AISystem.organization_id == org.id)) is not None:
+        return  # idempotent
+
+    admin = db.scalar(select(User).where(User.email == "admin@asterlane.demo"))
+    user_id = admin.id if admin else None
+
+    # A dedicated foreign model vendor so the vendor / sub-processor control has a
+    # concrete counterparty (distinct from the generic analytics vendor).
+    model_vendor = db.scalar(
+        select(Vendor).where(Vendor.organization_id == org.id, Vendor.name == "NovaModel AI")
+    )
+    if model_vendor is None:
+        model_vendor = Vendor(
+            organization_id=org.id,
+            name="NovaModel AI",
+            description="US-hosted foundation-model API used for credit narrative generation.",
+            service_type="Hosted LLM inference",
+            country="US",
+            data_processing="Receives applicant features to generate credit rationale.",
+            contract_status="MISSING",
+            risk_level="HIGH",
+            owner="ml-platform@asterlane.demo",
+            created_at=utcnow(),
+            updated_at=utcnow(),
+        )
+        db.add(model_vendor)
+        db.flush()
+
+    # 1) BFSI credit decisioning copilot — trips the India AI stack.
+    ai_system_service.import_architecture(
+        db,
+        org.id,
+        user_id,
+        {
+            "system": {
+                "name": "Merchant Credit Scoring Copilot",
+                "description": "Generates credit decisions and rationale for merchant financing.",
+                "business_purpose": "Automated merchant credit underwriting.",
+                "owner": "ml-platform@asterlane.demo",
+                "system_type": "LLM",
+                "sector": "bfsi",
+                "lifecycle_stage": "PRODUCTION",
+                "review_status": "NOT_REVIEWED",
+                "processes_personal_data": True,
+                "makes_automated_decisions": True,
+                "high_risk": True,
+                "regions": ["India"],
+                "deployment_environment": "AWS ap-south-1 + external LLM API",
+            },
+            "components": [
+                {
+                    "key": "llm",
+                    "name": "NovaModel Hosted LLM",
+                    "type": "MODEL",
+                    "external": True,
+                    "region": "us",
+                    "provider": "NovaModel AI",
+                    "vendor": "NovaModel AI",
+                    "description": "US-hosted model used to generate credit rationale.",
+                },
+                {
+                    "key": "apm",
+                    "name": "External APM / Log Pipeline",
+                    "type": "SERVICE",
+                    "external": True,
+                    "region": "us",
+                    "provider": "Datadog",
+                    "description": "Application telemetry shipped to a US observability service.",
+                },
+                {
+                    "key": "features",
+                    "name": "Feature Store",
+                    "type": "DATA_STORE",
+                    "region": "India",
+                    "description": "Applicant and transaction features (personal data).",
+                },
+                {
+                    "key": "decision_api",
+                    "name": "Decision API",
+                    "type": "API",
+                    "region": "India",
+                    "description": "Internal service returning the underwriting decision.",
+                },
+            ],
+            "flows": [
+                {
+                    "from": "features",
+                    "to": "llm",
+                    "relation": "SENDS_TO",
+                    "purpose": "Generate credit rationale",
+                    "contains_personal_data": True,
+                    "cross_border": True,
+                },
+                {
+                    "from": "llm",
+                    "to": "decision_api",
+                    "relation": "SENDS_TO",
+                    "purpose": "Return decision + rationale",
+                    "contains_personal_data": True,
+                    "cross_border": True,
+                },
+            ],
+        },
+    )
+
+    # 2) Internal documentation assistant — general, low-risk, India-only.
+    ai_system_service.import_architecture(
+        db,
+        org.id,
+        user_id,
+        {
+            "system": {
+                "name": "Internal Docs Assistant",
+                "description": "Answers employee questions over internal runbooks.",
+                "business_purpose": "Internal knowledge search.",
+                "owner": "platform@asterlane.demo",
+                "system_type": "RAG",
+                "sector": "general",
+                "lifecycle_stage": "PRODUCTION",
+                "review_status": "REVIEWED",
+                "processes_personal_data": False,
+                "makes_automated_decisions": False,
+                "high_risk": False,
+                "regions": ["India"],
+                "deployment_environment": "Self-hosted in AWS ap-south-1",
+            },
+            "components": [
+                {
+                    "key": "embed",
+                    "name": "Embedding Model",
+                    "type": "MODEL",
+                    "external": False,
+                    "region": "India",
+                },
+                {
+                    "key": "index",
+                    "name": "Runbook Index",
+                    "type": "DATA_STORE",
+                    "region": "India",
+                },
+            ],
+            "flows": [
+                {
+                    "from": "index",
+                    "to": "embed",
+                    "relation": "SENDS_TO",
+                    "purpose": "Retrieve context",
+                    "contains_personal_data": False,
+                    "cross_border": False,
+                },
+            ],
+        },
+    )
+    db.flush()
+
+
 def seed_findings(db: Session, org: Organization) -> int:
     """Run the deterministic assessment + finding generation over the complete state.
 
@@ -781,6 +952,8 @@ def run() -> None:
         seed_connectors_and_scan(db, org)
         db.commit()
         seed_flows_and_activities(db, org)
+        db.commit()
+        seed_ai_systems(db, org)
         db.commit()
         seed_evidence_and_ops(db, org)
         db.commit()

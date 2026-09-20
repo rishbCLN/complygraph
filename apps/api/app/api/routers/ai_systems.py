@@ -15,9 +15,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import AuthContext, get_current_context, require_capability
+from app.core.audit import record_audit
 from app.core.database import get_db
-from app.core.rbac import MANAGE_INVENTORY
-from app.services import ai_system_service, graph_service
+from app.core.rbac import ASSESS_CONTROLS, MANAGE_INVENTORY
+from app.services import ai_system_service, assessment_service, graph_service
 
 router = APIRouter(prefix="/systems", tags=["ai-systems"])
 
@@ -302,3 +303,33 @@ def get_system_facts(
     """Derived applicability facts (consumed by the Phase 3 analysis engine)."""
     system = ai_system_service.get_system(db, ctx.organization_id, system_id)
     return ai_system_service.derive_facts(db, system)
+
+
+@router.post("/{system_id}/analyze")
+def analyze_system(
+    system_id: uuid.UUID,
+    ctx: AuthContext = Depends(require_capability(ASSESS_CONTROLS)),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Run the deterministic analysis engine scoped to a single AI system.
+
+    Returns each AI-scoped control's status, a plain-language reason and
+    recommended actions for this system, plus the derived facts that drove the
+    result. Read-only: no assessments or findings are persisted.
+    """
+    system = ai_system_service.get_system(db, ctx.organization_id, system_id)
+    report = assessment_service.analyze_system(db, ctx.organization, system)
+    record_audit(
+        db,
+        action="ai_system.analyzed",
+        organization_id=ctx.organization_id,
+        user_id=ctx.user.id,
+        entity_type="ai_system",
+        entity_id=system.id,
+        metadata={
+            "applicable": report["summary"]["applicable"],
+            "by_status": report["summary"]["by_status"],
+        },
+    )
+    db.commit()
+    return report
