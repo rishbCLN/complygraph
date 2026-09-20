@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import Base, SessionLocal, engine, utcnow
 from app.core.enums import (
+    CitationStatus,
     ConnectorStatus,
     ConnectorType,
     DSRStatus,
@@ -33,6 +34,7 @@ from app.core.enums import (
     EvidenceRelation,
     EvidenceType,
     FlowType,
+    LegalStatus,
     Role,
 )
 from app.models.evidence import ControlEvidence, Evidence
@@ -52,6 +54,10 @@ DPDP_ACT_EFFECTIVE = datetime(2023, 8, 11, tzinfo=timezone.utc)
 DPDP_RULES_EFFECTIVE = datetime(2025, 1, 1, tzinfo=timezone.utc)
 # A rule that is not yet in force at the assessment date -> shown as UPCOMING.
 FUTURE_RULE_EFFECTIVE = datetime(2027, 5, 13, tzinfo=timezone.utc)
+DPDP_ACT_SOURCE_URL = (
+    "https://www.meity.gov.in/writereaddata/files/"
+    "Digital%20Personal%20Data%20Protection%20Act%202023.pdf"
+)
 
 
 # --- Control library ------------------------------------------------------------
@@ -289,7 +295,11 @@ def seed_framework(db: Session) -> Regulation:
             jurisdiction="India",
             version="2023 + DPDP Rules 2025",
             source_document="Digital Personal Data Protection Act, 2023 (No. 22 of 2023)",
+            source_url=DPDP_ACT_SOURCE_URL,
             source_date="2023-08-11",
+            pack="india-ai-compliance",
+            pack_version="0.1",
+            legal_status=LegalStatus.BINDING_LAW.value,
             effective_from=DPDP_ACT_EFFECTIVE,
             status="IN_FORCE",
             enabled=True,
@@ -315,6 +325,9 @@ def seed_framework(db: Session) -> Regulation:
                 )
             )
         if obligation is None:
+            # DPDP Rules 2025 provisions carry BINDING_RULE weight; the DPDP Act
+            # itself is BINDING_LAW. Both are cited to precise sections -> VERIFIED.
+            is_rule = "Rules" in (legal_ref or "")
             obligation = Obligation(
                 regulation_id=regulation.id,
                 code=f"OBL-{code}",
@@ -322,6 +335,11 @@ def seed_framework(db: Session) -> Regulation:
                 description=description,
                 legal_reference=legal_ref,
                 source_section=section,
+                source_url=DPDP_ACT_SOURCE_URL,
+                legal_status=(
+                    LegalStatus.BINDING_RULE.value if is_rule else LegalStatus.BINDING_LAW.value
+                ),
+                citation_status=CitationStatus.VERIFIED.value,
                 effective_from=eff,
                 created_at=utcnow(),
                 updated_at=utcnow(),
@@ -753,6 +771,10 @@ def run() -> None:
     db = SessionLocal()
     try:
         seed_framework(db)
+        db.commit()
+        from app.seed_packs import seed_packs
+
+        seed_packs(db)
         db.commit()
         org = seed_org(db)
         db.commit()

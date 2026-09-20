@@ -91,6 +91,38 @@ class RegulationStatus(str, Enum):
     RETIRED = "RETIRED"
 
 
+class LegalStatus(str, Enum):
+    """The legal/institutional weight of an obligation.
+
+    These MUST NOT be collapsed into a single generic "law" label. DPDP, RBI,
+    CERT-In and MeitY materials carry different legal force and the product must
+    represent that distinction honestly (see AI Compliance Compiler spec s.2).
+    """
+
+    BINDING_LAW = "BINDING_LAW"  # primary legislation (e.g. DPDP Act)
+    BINDING_RULE = "BINDING_RULE"  # subordinate rules with legal force (e.g. DPDP Rules)
+    REGULATORY_DIRECTION = "REGULATORY_DIRECTION"  # binding sectoral direction (e.g. RBI/CERT-In directions)
+    REGULATOR_EXPECTATION = "REGULATOR_EXPECTATION"  # supervisory expectation, not codified
+    FORMAL_FRAMEWORK = "FORMAL_FRAMEWORK"  # published committee/framework material (e.g. RBI FREE-AI report)
+    GUIDANCE = "GUIDANCE"  # advisory guidance (e.g. MeitY AI governance guidelines)
+    BEST_PRACTICE = "BEST_PRACTICE"  # industry best practice
+    INTERNAL_POLICY = "INTERNAL_POLICY"  # organization's own policy
+
+
+class CitationStatus(str, Enum):
+    """Whether a requirement's source citation has been verified against source text."""
+
+    VERIFIED = "VERIFIED"
+    UNVERIFIED = "UNVERIFIED"  # surfaced as "HUMAN REVIEW REQUIRED" in the UI
+
+
+class ApplicabilityStatus(str, Enum):
+    APPLICABLE = "APPLICABLE"
+    POTENTIALLY_APPLICABLE = "POTENTIALLY_APPLICABLE"
+    NOT_APPLICABLE = "NOT_APPLICABLE"
+    NEEDS_REVIEW = "NEEDS_REVIEW"
+
+
 class ControlStatus(str, Enum):
     PASS = "PASS"
     PARTIAL = "PARTIAL"

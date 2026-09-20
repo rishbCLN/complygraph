@@ -10,7 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 from app.models._common import TimestampMixin, uuid_pk
-from app.models.types import GUID
+from app.models.types import GUID, JSONB
 
 
 class Regulation(Base, TimestampMixin):
@@ -21,7 +21,14 @@ class Regulation(Base, TimestampMixin):
     jurisdiction: Mapped[str] = mapped_column(String(120), default="India")
     version: Mapped[str | None] = mapped_column(String(80))
     source_document: Mapped[str | None] = mapped_column(String(512))
+    source_url: Mapped[str | None] = mapped_column(String(1024))
     source_date: Mapped[str | None] = mapped_column(String(40))
+    # Regulatory pack versioning: analyses are pinned to a knowledge-base snapshot
+    # so a finding can always be traced to the pack version it was produced against.
+    pack: Mapped[str | None] = mapped_column(String(80))  # e.g. "india-ai-compliance"
+    pack_version: Mapped[str | None] = mapped_column(String(40))  # e.g. "0.3"
+    # Default legal weight for obligations under this regulation (see LegalStatus).
+    legal_status: Mapped[str] = mapped_column(String(40), default="BINDING_LAW")
     effective_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String(40), default="IN_FORCE")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -42,6 +49,12 @@ class Obligation(Base, TimestampMixin):
     description: Mapped[str | None] = mapped_column(Text)
     legal_reference: Mapped[str | None] = mapped_column(String(512))
     source_section: Mapped[str | None] = mapped_column(String(255))
+    source_url: Mapped[str | None] = mapped_column(String(1024))
+    # Legal weight of THIS obligation. Never collapse distinct statuses into "law".
+    legal_status: Mapped[str] = mapped_column(String(40), default="BINDING_LAW")
+    # Whether the citation has been verified against source text. Unverified
+    # requirements are surfaced as "HUMAN REVIEW REQUIRED", never as settled law.
+    citation_status: Mapped[str] = mapped_column(String(40), default="UNVERIFIED")
     effective_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     applicability_logic: Mapped[str | None] = mapped_column(Text)
 
@@ -65,6 +78,11 @@ class Control(Base, TimestampMixin):
     evaluator_key: Mapped[str | None] = mapped_column(String(120))
     effective_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     severity_default: Mapped[str] = mapped_column(String(20), default="MEDIUM")
+    # Applicability scoping: which sectors / AI system types / conditions this
+    # control applies to. Consumed by the applicability engine. Example:
+    #   {"sectors": ["bfsi"], "ai_types": ["all"], "conditions": ["processes_personal_data"]}
+    # An empty/absent value means the control applies broadly (subject to evidence).
+    applies_to: Mapped[dict | None] = mapped_column(JSONB)
 
     obligation: Mapped[Obligation] = relationship(back_populates="controls")
 

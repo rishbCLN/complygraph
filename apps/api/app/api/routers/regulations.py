@@ -26,6 +26,10 @@ class RegulationOut(BaseModel):
     jurisdiction: str
     version: str | None
     source_document: str | None
+    source_url: str | None
+    pack: str | None
+    pack_version: str | None
+    legal_status: str
     effective_from: datetime | None
     status: str
     enabled: bool
@@ -39,6 +43,9 @@ class ObligationOut(BaseModel):
     description: str | None
     legal_reference: str | None
     source_section: str | None
+    source_url: str | None
+    legal_status: str
+    citation_status: str
     effective_from: datetime | None
     control_count: int
 
@@ -61,6 +68,10 @@ def list_regulations(
                 jurisdiction=r.jurisdiction,
                 version=r.version,
                 source_document=r.source_document,
+                source_url=r.source_url,
+                pack=r.pack,
+                pack_version=r.pack_version,
+                legal_status=r.legal_status,
                 effective_from=r.effective_from,
                 status=regulation_status(r.effective_from, assessment_date),
                 enabled=r.enabled,
@@ -89,6 +100,10 @@ def get_regulation(
         jurisdiction=r.jurisdiction,
         version=r.version,
         source_document=r.source_document,
+        source_url=r.source_url,
+        pack=r.pack,
+        pack_version=r.pack_version,
+        legal_status=r.legal_status,
         effective_from=r.effective_from,
         status=regulation_status(r.effective_from, assessment_date),
         enabled=r.enabled,
@@ -118,6 +133,9 @@ def get_obligations(
                 description=o.description,
                 legal_reference=o.legal_reference,
                 source_section=o.source_section,
+                source_url=o.source_url,
+                legal_status=o.legal_status,
+                citation_status=o.citation_status,
                 effective_from=o.effective_from,
                 control_count=int(count),
             )
