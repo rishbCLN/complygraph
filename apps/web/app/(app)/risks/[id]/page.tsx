@@ -3,6 +3,7 @@
 import { Badge } from "@/components/badge";
 import { Button } from "@/components/button";
 import { ErrorState, Panel } from "@/components/panel";
+import { TicketPanel } from "@/components/ticket-panel";
 import { ConfirmDialog, Field, Input, PageHeader, ScoreBar, Skeleton } from "@/components/ui";
 import { formatDate, formatDateTime, formatNumber } from "@/lib/format";
 import {
@@ -262,6 +263,10 @@ export default function RiskDetailPage() {
           </div>
         )}
       </Panel>
+
+      <div className="mt-4">
+        <TicketPanel entityType="risk" entityId={id} defaultSummary={r.title} />
+      </div>
 
       <ConfirmDialog
         open={confirmDelete}

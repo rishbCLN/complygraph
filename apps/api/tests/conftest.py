@@ -21,6 +21,10 @@ _TEST_DB_PATH = _TEST_DB_DIR / f"test-{uuid.uuid4().hex}.db"
 os.environ["DATABASE_URL"] = f"sqlite:///{_TEST_DB_PATH.as_posix()}"
 os.environ.setdefault("AI_MODE", "deterministic")
 os.environ.setdefault("ANTHROPIC_API_KEY", "")
+# Domain-event webhook dispatch is a no-op under test so seeded/created endpoints
+# never make real outbound HTTP calls. Delivery is exercised explicitly via the
+# ``/test`` endpoint and monkeypatched ``_deliver_once`` in test_integrations.py.
+os.environ.setdefault("WEBHOOKS_ENABLED", "false")
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -53,6 +57,8 @@ def client():
 def _login(client, email: str = "admin@asterlane.demo", password: str = "DemoPass123!"):
     resp = client.post("/api/v1/auth/login", json={"email": email, "password": password})
     assert resp.status_code == 200, resp.text
+    # Demo accounts have no MFA, so login returns the user payload directly.
+    # (MFA-enabled accounts instead get {"mfa_required": true, "mfa_token": ...}.)
     return resp.json()
 
 

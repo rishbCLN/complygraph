@@ -219,6 +219,9 @@ def submit_request(slug: str, payload: DSRSubmit, db: Session = Depends(get_db))
     db.add(req)
     db.flush()
     reference = str(req.id)
+    from app.services import dsr_service
+
+    dsr_service.dispatch_dsr_event(db, req, "dsr.created")
     db.commit()
     return SubmitResult(
         ok=True,

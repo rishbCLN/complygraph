@@ -3,6 +3,7 @@
 import { Badge } from "@/components/badge";
 import { Button } from "@/components/button";
 import { EmptyState, ErrorState, Panel, Spinner } from "@/components/panel";
+import { TicketPanel } from "@/components/ticket-panel";
 import { ConfirmDialog, Field, PageHeader, ScoreBar, Skeleton } from "@/components/ui";
 import { formatDateTime, titleCase } from "@/lib/format";
 import {
@@ -213,6 +214,8 @@ export default function FindingDetailPage() {
               )}
             </div>
           </Panel>
+
+          <TicketPanel entityType="finding" entityId={id} defaultSummary={f.title} />
         </div>
       </div>
 

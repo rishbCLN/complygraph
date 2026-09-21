@@ -142,6 +142,7 @@ def create_request(
         entity_id=req.id,
         metadata={"request_type": payload.request_type},
     )
+    dsr_service.dispatch_dsr_event(db, req, "dsr.created")
     db.commit()
     return _out(req)
 
@@ -204,6 +205,7 @@ def complete_request(
     req = get_org_scoped(db, DataSubjectRequest, request_id, ctx.organization_id)
     req.status = DSRStatus.FULFILLED.value
     req.completed_at = utcnow()
+    dsr_service.dispatch_dsr_event(db, req, "dsr.fulfilled")
     record_audit(
         db,
         action="data_request.completed",

@@ -37,6 +37,30 @@ class Settings(BaseSettings):
     scheduled_rescan_interval_hours: int = 24
     scheduled_rescan_min_age_hours: int = 20  # only rescan connectors idle at least this long
 
+    # Scheduled re-assessment: periodically re-run the control engine org-wide so
+    # posture reflects new evidence/effective-dates without a manual trigger.
+    scheduled_reassessment_enabled: bool = True
+    scheduled_reassessment_interval_hours: int = 24
+
+    # Reminders: generate in-app notifications for expiring evidence, overdue
+    # findings/tasks/DSRs, risk reviews due, and controls due for re-assessment.
+    reminders_enabled: bool = True
+    reminders_interval_hours: int = 12
+    reminder_evidence_expiry_days: int = 30  # warn this far ahead of evidence expiry
+    reminder_dsr_due_days: int = 7  # warn this far ahead of a DSR statutory deadline
+    control_reassess_interval_days: int = 90  # a control is "due" if last assessed longer ago
+
+    # Email delivery is OPTIONAL and DORMANT until SMTP is configured. With no
+    # smtp_host set, the notification service records in-app notifications only
+    # and email dispatch is a no-op (nothing is sent, no error).
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_use_tls: bool = True
+    smtp_from_address: str = "[email protected]"
+    email_notifications_enabled: bool = False  # gate; also requires smtp_host
+
     # Security
     secret_key: str = "dev-secret-key-change-me"
     app_encryption_key: str = "dev-encryption-key-change-me-0123456789abcdefABCDEF="
@@ -65,12 +89,131 @@ class Settings(BaseSettings):
     ai_mode: str = "deterministic"  # anthropic | deterministic
     ai_max_calls_per_session: int = 20
 
+    # ------------------------------------------------------------------
+    # Integrations (feature #10). Every integration below is fully real but
+    # DORMANT by default: with no credentials configured the code paths are
+    # inert (endpoints return a "not configured" state, dispatch is a no-op,
+    # SSO/MFA are simply unavailable). Nothing here changes behaviour until
+    # the corresponding environment variables are set.
+    # ------------------------------------------------------------------
+
+    # Outbound webhooks. Per-endpoint registration lives in the database
+    # (org-scoped); this only bounds delivery behaviour. Webhooks are dispatched
+    # only when at least one enabled endpoint exists, so no env flag is needed.
+    webhooks_enabled: bool = True  # master kill-switch for outbound delivery
+    webhook_timeout_seconds: float = 10.0
+    webhook_max_attempts: int = 4  # initial try + retries with backoff
+    webhook_retry_backoff_seconds: float = 2.0
+
+    # Jira Cloud issue creation (findings/tasks/risks -> Jira issues).
+    # Dormant until base_url + email + api_token + project_key are all set.
+    jira_base_url: str = ""  # e.g. https://acme.atlassian.net
+    jira_email: str = ""
+    jira_api_token: str = ""
+    jira_project_key: str = ""  # e.g. SEC
+    jira_default_issue_type: str = "Task"
+    jira_timeout_seconds: float = 15.0
+
+    # ServiceNow incident creation (Table API).
+    # Dormant until instance_url + username + password are all set.
+    servicenow_instance_url: str = ""  # e.g. https://dev12345.service-now.com
+    servicenow_username: str = ""
+    servicenow_password: str = ""
+    servicenow_timeout_seconds: float = 15.0
+
+    # SSO - OpenID Connect (Authorization Code flow).
+    # Dormant until issuer + client_id + client_secret are set.
+    oidc_enabled: bool = True  # gate; also requires the fields below
+    oidc_issuer: str = ""  # base issuer URL; discovery doc at /.well-known/openid-configuration
+    oidc_client_id: str = ""
+    oidc_client_secret: str = ""
+    oidc_redirect_url: str = ""  # e.g. http://localhost:8000/api/v1/sso/oidc/callback
+    oidc_scopes: str = "openid email profile"
+    oidc_provider_name: str = "SSO"  # display label on the login button
+    # Only pre-existing users (matched by verified email) may sign in via SSO
+    # unless auto-provisioning is explicitly enabled.
+    sso_auto_provision: bool = False
+    sso_auto_provision_role: str = "VIEWER"
+    # Org that auto-provisioned SSO users join. Empty => the first organization
+    # (typical for a single-tenant enterprise SSO deployment).
+    sso_default_org_slug: str = ""
+    sso_post_login_redirect: str = "http://localhost:3000"
+
+    # SSO - SAML 2.0 (SP-initiated, HTTP-Redirect AuthnRequest / HTTP-POST ACS).
+    # Dormant until idp metadata (entity id, SSO URL, signing cert) + SP entity id are set.
+    saml_enabled: bool = True  # gate; also requires the fields below
+    saml_sp_entity_id: str = ""  # our SP entity id (audience)
+    saml_sp_acs_url: str = ""  # Assertion Consumer Service URL (our callback)
+    saml_idp_entity_id: str = ""
+    saml_idp_sso_url: str = ""  # IdP SingleSignOn redirect endpoint
+    saml_idp_x509_cert: str = ""  # IdP signing certificate (PEM body, base64 DER, or full PEM)
+    saml_provider_name: str = "SAML SSO"
+
+    # MFA - TOTP (RFC 6238). Users opt in individually; this only bounds policy.
+    mfa_enabled: bool = True  # allow users to enrol in TOTP MFA
+    mfa_issuer_name: str = "ComplyGraph"  # shown in authenticator apps
+    mfa_totp_period_seconds: int = 30
+    mfa_totp_digits: int = 6
+    mfa_totp_valid_window: int = 1  # accept codes +/- this many periods (clock skew)
+    mfa_challenge_ttl_seconds: int = 300  # how long a login MFA challenge stays valid
+    mfa_backup_code_count: int = 10
+
     @property
     def effective_ai_mode(self) -> str:
         """Fall back to deterministic mode when no API key is configured."""
         if self.ai_mode == "anthropic" and self.anthropic_api_key.strip():
             return "anthropic"
         return "deterministic"
+
+    @property
+    def email_configured(self) -> bool:
+        """Email dispatch is live only when explicitly enabled AND an SMTP host is set.
+
+        Keeps the integration dormant (in-app notifications only) until real
+        credentials are provided via the environment.
+        """
+        return self.email_notifications_enabled and bool(self.smtp_host.strip())
+
+    @property
+    def jira_configured(self) -> bool:
+        """Jira issue creation is live only when all connection fields are set."""
+        return bool(
+            self.jira_base_url.strip()
+            and self.jira_email.strip()
+            and self.jira_api_token.strip()
+            and self.jira_project_key.strip()
+        )
+
+    @property
+    def servicenow_configured(self) -> bool:
+        """ServiceNow incident creation is live only when all fields are set."""
+        return bool(
+            self.servicenow_instance_url.strip()
+            and self.servicenow_username.strip()
+            and self.servicenow_password.strip()
+        )
+
+    @property
+    def oidc_configured(self) -> bool:
+        """OIDC login is live only when enabled AND issuer/client credentials exist."""
+        return bool(
+            self.oidc_enabled
+            and self.oidc_issuer.strip()
+            and self.oidc_client_id.strip()
+            and self.oidc_client_secret.strip()
+            and self.oidc_redirect_url.strip()
+        )
+
+    @property
+    def saml_configured(self) -> bool:
+        """SAML login is live only when enabled AND IdP + SP metadata exist."""
+        return bool(
+            self.saml_enabled
+            and self.saml_sp_entity_id.strip()
+            and self.saml_sp_acs_url.strip()
+            and self.saml_idp_sso_url.strip()
+            and self.saml_idp_x509_cert.strip()
+        )
 
     @property
     def cors_origin_list(self) -> list[str]:

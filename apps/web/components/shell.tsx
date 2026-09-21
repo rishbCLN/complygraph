@@ -6,16 +6,24 @@ import { useAiMode, useLogoutMutation, useMe } from "@/lib/queries";
 import {
   Activity,
   AlertTriangle,
+  BadgeCheck,
+  Bell,
   Boxes,
+  BrainCircuit,
+  CheckCheck,
   ClipboardCheck,
+  ClipboardList,
   Database,
+  FileCheck,
   FileText,
   Gavel,
+  GitCompareArrows,
   Inbox,
   LayoutDashboard,
   ListChecks,
   LogOut,
   Network,
+  Radar,
   ScrollText,
   Settings,
   ShieldAlert,
@@ -25,7 +33,14 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useDismissNotification,
+  useMarkAllNotificationsRead,
+  useMarkNotificationRead,
+  useNotifications,
+  useUnreadCount,
+} from "@/lib/queries";
 import { GlobalSearch } from "./global-search";
 
 type NavItem = { href: string; label: string; icon: typeof Database };
@@ -42,6 +57,7 @@ const NAV: NavGroup[] = [
       { href: "/data-assets", label: "Data Assets", icon: Database },
       { href: "/data-map", label: "Data Map", icon: Network },
       { href: "/processing-activities", label: "Processing", icon: Workflow },
+      { href: "/ai-systems", label: "AI Systems", icon: BrainCircuit },
       { href: "/vendors", label: "Vendors", icon: Boxes },
     ],
   },
@@ -50,8 +66,11 @@ const NAV: NavGroup[] = [
     items: [
       { href: "/regulations", label: "Regulations", icon: Gavel },
       { href: "/controls", label: "Controls", icon: ClipboardCheck },
+      { href: "/control-mappings", label: "Control Mapping", icon: GitCompareArrows },
       { href: "/findings", label: "Findings", icon: AlertTriangle },
       { href: "/evidence", label: "Evidence", icon: FileText },
+      { href: "/campaigns", label: "Audit Campaigns", icon: ClipboardList },
+      { href: "/self-audit", label: "Self-audit", icon: BadgeCheck },
     ],
   },
   {
@@ -59,6 +78,9 @@ const NAV: NavGroup[] = [
     items: [
       { href: "/tasks", label: "Tasks", icon: ListChecks },
       { href: "/data-requests", label: "Data Requests", icon: Inbox },
+      { href: "/consent", label: "Consent", icon: FileCheck },
+      { href: "/risks", label: "Risk Register", icon: Radar },
+      { href: "/approvals", label: "Approvals", icon: CheckCheck },
       { href: "/incidents", label: "Incidents", icon: ShieldAlert },
       { href: "/ai-investigator", label: "AI Investigator", icon: Sparkles },
     ],
@@ -67,6 +89,7 @@ const NAV: NavGroup[] = [
     label: "Governance",
     items: [
       { href: "/reports", label: "Reports", icon: ScrollText },
+      { href: "/notifications", label: "Notifications", icon: Bell },
       { href: "/audit-log", label: "Audit Log", icon: Activity },
       { href: "/settings", label: "Settings", icon: Settings },
     ],
@@ -119,6 +142,116 @@ function Sidebar() {
   );
 }
 
+function NotificationBell() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const { data: count } = useUnreadCount();
+  const { data: items } = useNotifications();
+  const markRead = useMarkNotificationRead();
+  const dismiss = useDismissNotification();
+  const markAll = useMarkAllNotificationsRead();
+
+  useEffect(() => {
+    function onClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, []);
+
+  const unread = count?.unread ?? 0;
+  const recent = (items ?? []).slice(0, 6);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="relative rounded p-1.5 text-muted hover:bg-panel-2 hover:text-fg"
+        title="Notifications"
+      >
+        <Bell className="h-4 w-4" />
+        {unread > 0 && (
+          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold text-white">
+            {unread > 9 ? "9+" : unread}
+          </span>
+        )}
+      </button>
+      {open && (
+        <div className="absolute right-0 z-50 mt-2 w-80 rounded-lg border border-border bg-panel shadow-lg">
+          <div className="flex items-center justify-between border-b border-border px-3 py-2">
+            <span className="text-sm font-semibold">Notifications</span>
+            {unread > 0 && (
+              <button
+                onClick={() => markAll.mutate()}
+                className="text-xs text-accent hover:underline"
+              >
+                Mark all read
+              </button>
+            )}
+          </div>
+          <div className="max-h-80 overflow-y-auto">
+            {recent.length === 0 ? (
+              <div className="px-3 py-6 text-center text-xs text-muted">
+                You&apos;re all caught up.
+              </div>
+            ) : (
+              recent.map((n) => (
+                <div
+                  key={n.id}
+                  className={cn(
+                    "border-b border-border/60 px-3 py-2 last:border-0",
+                    n.state === "UNREAD" && "bg-panel-2/40",
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-xs font-medium">{n.title}</span>
+                    <span
+                      className={cn(
+                        "shrink-0 rounded px-1 text-[9px] font-semibold uppercase",
+                        n.severity === "CRITICAL"
+                          ? "bg-danger/15 text-danger"
+                          : n.severity === "WARNING"
+                            ? "bg-upcoming/15 text-upcoming"
+                            : "bg-muted/15 text-muted",
+                      )}
+                    >
+                      {n.severity}
+                    </span>
+                  </div>
+                  {n.body && <p className="mt-0.5 line-clamp-2 text-[11px] text-muted">{n.body}</p>}
+                  <div className="mt-1 flex gap-2">
+                    {n.state === "UNREAD" && (
+                      <button
+                        onClick={() => markRead.mutate(n.id)}
+                        className="text-[10px] text-accent hover:underline"
+                      >
+                        Read
+                      </button>
+                    )}
+                    <button
+                      onClick={() => dismiss.mutate(n.id)}
+                      className="text-[10px] text-muted hover:underline"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+          <Link
+            href="/notifications"
+            onClick={() => setOpen(false)}
+            className="block border-t border-border px-3 py-2 text-center text-xs text-accent hover:underline"
+          >
+            View all
+          </Link>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Topbar({ orgName, userName }: { orgName: string; userName: string }) {
   const router = useRouter();
   const logout = useLogoutMutation();
@@ -154,6 +287,7 @@ function Topbar({ orgName, userName }: { orgName: string; userName: string }) {
         >
           {aiLabel}
         </span>
+        <NotificationBell />
         <div className="flex items-center gap-2 border-l border-border pl-3">
           <div className="text-right">
             <div className="text-xs font-medium">{userName}</div>

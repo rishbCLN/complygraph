@@ -351,10 +351,77 @@ class NotificationStatus(str, Enum):
     COMPLETED = "COMPLETED"
 
 
+class NotificationState(str, Enum):
+    """Lifecycle of an in-app notification."""
+
+    UNREAD = "UNREAD"
+    READ = "READ"
+    DISMISSED = "DISMISSED"
+
+
+class NotificationSeverity(str, Enum):
+    INFO = "INFO"
+    WARNING = "WARNING"
+    CRITICAL = "CRITICAL"
+
+
+class NotificationKind(str, Enum):
+    """What produced a notification (drives icon/grouping and dedupe keys)."""
+
+    EVIDENCE_EXPIRING = "EVIDENCE_EXPIRING"
+    EVIDENCE_EXPIRED = "EVIDENCE_EXPIRED"
+    FINDING_OVERDUE = "FINDING_OVERDUE"
+    TASK_OVERDUE = "TASK_OVERDUE"
+    DSR_DUE = "DSR_DUE"
+    DSR_OVERDUE = "DSR_OVERDUE"
+    RISK_REVIEW_DUE = "RISK_REVIEW_DUE"
+    CONTROL_REASSESS_DUE = "CONTROL_REASSESS_DUE"
+    REASSESSMENT_COMPLETE = "REASSESSMENT_COMPLETE"
+    ASSESSMENT_REGRESSED = "ASSESSMENT_REGRESSED"
+
+
 class AIInvestigationStatus(str, Enum):
     PENDING = "PENDING"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
+
+
+class WebhookEvent(str, Enum):
+    """Domain events an outbound webhook endpoint can subscribe to."""
+
+    FINDING_CREATED = "finding.created"
+    FINDING_RESOLVED = "finding.resolved"
+    RISK_CREATED = "risk.created"
+    RISK_STATUS_CHANGED = "risk.status_changed"
+    DSR_CREATED = "dsr.created"
+    DSR_FULFILLED = "dsr.fulfilled"
+    BREACH_CREATED = "breach.created"
+    ASSESSMENT_REGRESSED = "assessment.regressed"
+    CONTROL_REASSESSED = "control.reassessed"
+
+
+class WebhookDeliveryStatus(str, Enum):
+    PENDING = "PENDING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+
+
+class TicketProvider(str, Enum):
+    JIRA = "JIRA"
+    SERVICENOW = "SERVICENOW"
+
+
+class TicketStatus(str, Enum):
+    """Local mirror of an external ticket's lifecycle (best-effort, not authoritative)."""
+
+    OPEN = "OPEN"
+    CREATED = "CREATED"
+    FAILED = "FAILED"
+
+
+class SSOProtocol(str, Enum):
+    OIDC = "OIDC"
+    SAML = "SAML"
 
 
 class OwnerType(str, Enum):

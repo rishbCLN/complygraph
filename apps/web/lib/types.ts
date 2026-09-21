@@ -15,6 +15,7 @@ export type Me = {
   role: string;
   capabilities: string[];
   organization: { id: string; name: string; slug: string; role: string };
+  mfa_enabled: boolean;
 };
 
 // Audit campaigns (feature #5).
@@ -819,4 +820,110 @@ export type ConsentSummary = {
   distinct_principals: number;
   current_notice_version: number | null;
   by_purpose: ConsentPurposeSummary[];
+};
+
+// --- Notifications / reminders (feature #6) --------------------------------
+export type Notification = {
+  id: string;
+  kind: string;
+  severity: string;
+  state: string;
+  title: string;
+  body: string | null;
+  entity_type: string | null;
+  entity_id: string | null;
+  due_at: string | null;
+  read_at: string | null;
+  created_at: string | null;
+};
+
+export type ReassessmentResult = {
+  controls_assessed: number;
+  regressions: number;
+  improvements: number;
+  status_counts: Record<string, number>;
+  regressed_controls: {
+    control_id: string;
+    control_code: string;
+    from_status: string;
+    to_status: string;
+  }[];
+};
+
+// --- Integrations (feature #10) --------------------------------------------
+export type IntegrationState = {
+  name: string;
+  configured: boolean;
+  detail: string;
+};
+
+export type IntegrationStatus = {
+  integrations: IntegrationState[];
+  webhook_events: string[];
+};
+
+export type WebhookEndpoint = {
+  id: string;
+  name: string;
+  url: string;
+  events: string[];
+  enabled: boolean;
+  last_status: string | null;
+  last_delivery_at: string | null;
+  failure_count: number;
+  created_at: string | null;
+};
+
+// Returned once at creation / secret rotation.
+export type WebhookWithSecret = WebhookEndpoint & { secret: string };
+
+export type WebhookDelivery = {
+  id: string;
+  event: string;
+  event_id: string;
+  status: string;
+  attempts: number;
+  response_code: number | null;
+  detail: string | null;
+  created_at: string | null;
+  completed_at: string | null;
+};
+
+export type ExternalTicket = {
+  id: string;
+  provider: string;
+  entity_type: string;
+  entity_id: string;
+  external_key: string | null;
+  external_url: string | null;
+  status: string;
+  summary: string | null;
+  created_at: string | null;
+};
+
+// --- MFA (feature #10) -----------------------------------------------------
+export type MfaStatus = {
+  available: boolean;
+  enabled: boolean;
+  issuer: string;
+};
+
+export type MfaEnrollment = {
+  secret: string;
+  otpauth_uri: string;
+};
+
+export type MfaBackupCodes = {
+  backup_codes: string[];
+};
+
+// --- SSO (feature #10) -----------------------------------------------------
+export type SSOProvider = {
+  protocol: string;
+  name: string;
+  login_url: string;
+};
+
+export type SSOProviders = {
+  providers: SSOProvider[];
 };

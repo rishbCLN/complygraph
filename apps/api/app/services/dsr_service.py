@@ -210,7 +210,25 @@ def execute(db: Session, request: DataSubjectRequest) -> DataSubjectRequest:
         request.status = DSRStatus.FULFILLED.value
         request.completed_at = now
         request.fulfilled_at = now
+        dispatch_dsr_event(db, request, "dsr.fulfilled")
     return request
+
+
+def dispatch_dsr_event(db: Session, request: DataSubjectRequest, event: str) -> None:
+    """Fan a DSR lifecycle event to org webhooks. Best-effort, never raises."""
+    from app.services import webhook_service
+
+    webhook_service.dispatch_event(
+        db,
+        request.organization_id,
+        event,
+        {
+            "id": str(request.id),
+            "request_type": request.request_type,
+            "status": request.status,
+            "requester": request.requester_identifier,
+        },
+    )
 
 
 def _row_count(db: Session, task: DSRTask) -> int | None:

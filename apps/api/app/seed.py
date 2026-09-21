@@ -690,6 +690,10 @@ def seed_evidence_and_ops(db: Session, org: Organization) -> None:
     logging_ev = _evidence(db, org, "Access-log monitoring report", EvidenceType.LOG, collected_days_ago=400, expires_in_days=-30)
     _link_evidence(db, org, "DPDP-SECURITY-003", logging_ev)
 
+    # Near-expiry evidence -> drives an "expiring soon" reminder (feature #6).
+    dpia = _evidence(db, org, "DPIA sign-off record", EvidenceType.DOCUMENT, collected_days_ago=160, expires_in_days=25)
+    _link_evidence(db, org, "DPDP-GOVERNANCE-001", dpia)
+
     # DPDP-SECURITY-005 (processor-contract security) intentionally has NO evidence
     # -> "Vendor processing agreement evidence is missing" (Finding 5).
 
@@ -938,6 +942,31 @@ def seed_findings(db: Session, org: Organization) -> int:
     return count
 
 
+def seed_integrations(db: Session, org: Organization) -> None:
+    """Seed a demo outbound webhook endpoint (feature #10).
+
+    Registered but pointed at a placeholder receiver so the Integrations settings
+    page has something to display. Delivery is best-effort and gated by
+    ``settings.webhooks_enabled``; no live event fires during seeding because this
+    runs after all event-emitting seed steps.
+    """
+    from app.services import webhook_service
+
+    endpoint, _secret = webhook_service.create_endpoint(
+        db,
+        org.id,
+        name="Demo receiver (SIEM)",
+        url="https://example.com/complygraph/webhook",
+        events=[
+            "finding.created",
+            "risk.status_changed",
+            "breach.created",
+            "assessment.regressed",
+        ],
+    )
+    db.flush()
+
+
 def seed_consent(db: Session, org: Organization) -> None:
     """Seed a purpose catalogue, a published notice, and a few consent records."""
     from app.services import consent_service
@@ -1058,9 +1087,22 @@ def run() -> None:
         seed_consent(db, org)
         db.commit()
         findings = seed_findings(db, org)
+        db.commit()
+        # Baseline assessment history so re-assessment has a prior state to diff,
+        # then generate reminder notifications from the seeded data.
+        from app.services.reassessment_service import run_reassessment
+        from app.services.reminder_service import generate_for_org
+
+        run_reassessment(db, org)
+        db.commit()
+        reminders = generate_for_org(db, org)
+        db.commit()
+        seed_integrations(db, org)
+        db.commit()
         print(f"Seed complete. Organization: {org.name}")
         print(f"Assessment date: {org.assessment_date}")
         print(f"Findings generated: {findings}")
+        print(f"Reminders generated: {reminders.get('total', 0)}")
         print("Demo login (development only): admin@asterlane.demo / DemoPass123!")
     finally:
         db.close()

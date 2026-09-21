@@ -17,6 +17,9 @@ reportlab==4.2.5
 email-validator==2.2.0
 pypdf==5.1.0  # optional: policy-document PDF text extraction
 pyyaml==6.0.2  # custom regulatory pack authoring (YAML import)
+signxml==5.1.0  # SAML SSO: XML-DSig signature verification (pulls in lxml)
+lxml==6.1.3  # required by signxml for exclusive XML canonicalization
+defusedxml==0.7.1  # safe XML parsing for SAML responses (XXE/entity-expansion protection)
 
 # dev / test
 pytest==8.3.4

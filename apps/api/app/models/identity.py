@@ -36,6 +36,14 @@ class User(Base, TimestampMixin):
     password_hash: Mapped[str] = mapped_column(String(512), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
+    # MFA (TOTP, feature #10). Dormant until the user enrols. The shared secret
+    # and backup codes are Fernet-encrypted at rest; mfa_enabled flips true only
+    # after a successful verification of the enrolment code.
+    mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    mfa_secret_encrypted: Mapped[str | None] = mapped_column(String(512))
+    mfa_backup_codes_encrypted: Mapped[str | None] = mapped_column(Text)
+    mfa_enrolled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     memberships: Mapped[list["Membership"]] = relationship(back_populates="user")
 
 

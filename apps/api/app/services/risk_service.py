@@ -123,7 +123,23 @@ def create_risk(db: Session, org_id: uuid.UUID, user_id: uuid.UUID | None, data:
     )
     db.add(risk)
     db.flush()
+    _dispatch_risk_event(db, org_id, "risk.created", risk)
     return risk
+
+
+def _dispatch_risk_event(db, org_id, event, risk, *, previous_status=None) -> None:
+    from app.services import webhook_service
+
+    payload = {
+        "id": str(risk.id),
+        "title": risk.title,
+        "status": risk.status,
+        "category": risk.category,
+        "owner": risk.owner,
+    }
+    if previous_status is not None:
+        payload["previous_status"] = previous_status
+    webhook_service.dispatch_event(db, org_id, event, payload)
 
 
 def get_risk(db: Session, org_id: uuid.UUID, risk_id: uuid.UUID) -> Risk:
@@ -151,6 +167,7 @@ def list_risks(
 def update_risk(db: Session, org_id: uuid.UUID, risk_id: uuid.UUID, data: dict) -> Risk:
     risk = get_risk(db, org_id, risk_id)
     _validate_enums(data)
+    previous_status = risk.status
     for key, value in data.items():
         if key not in _EDITABLE:
             continue
@@ -159,6 +176,10 @@ def update_risk(db: Session, org_id: uuid.UUID, risk_id: uuid.UUID, data: dict) 
         setattr(risk, key, value)
     risk.updated_at = utcnow()
     db.flush()
+    if risk.status != previous_status:
+        _dispatch_risk_event(
+            db, org_id, "risk.status_changed", risk, previous_status=previous_status
+        )
     return risk
 
 
@@ -174,6 +195,7 @@ def accept_risk(
     if not (rationale or "").strip():
         raise ValidationError("Risk acceptance requires a rationale.")
     risk = get_risk(db, org_id, risk_id)
+    previous_status = risk.status
     risk.status = RiskStatus.ACCEPTED.value
     risk.treatment_strategy = TreatmentStrategy.ACCEPT.value
     risk.accepted_by = user_id
@@ -184,14 +206,23 @@ def accept_risk(
         risk.review_due_at = expires_at
     risk.updated_at = utcnow()
     db.flush()
+    if risk.status != previous_status:
+        _dispatch_risk_event(
+            db, org_id, "risk.status_changed", risk, previous_status=previous_status
+        )
     return risk
 
 
 def close_risk(db: Session, org_id: uuid.UUID, risk_id: uuid.UUID) -> Risk:
     risk = get_risk(db, org_id, risk_id)
+    previous_status = risk.status
     risk.status = RiskStatus.CLOSED.value
     risk.updated_at = utcnow()
     db.flush()
+    if risk.status != previous_status:
+        _dispatch_risk_event(
+            db, org_id, "risk.status_changed", risk, previous_status=previous_status
+        )
     return risk
 
 

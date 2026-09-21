@@ -110,3 +110,7 @@ def get_membership(db: Session, user: User, organization_id: uuid.UUID) -> Membe
 
 def get_organization(db: Session, organization_id: uuid.UUID) -> Organization | None:
     return db.get(Organization, organization_id)
+
+
+def get_user_by_email(db: Session, email: str) -> User | None:
+    return db.scalar(select(User).where(User.email == email.strip().lower()))

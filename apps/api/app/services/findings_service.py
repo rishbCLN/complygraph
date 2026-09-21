@@ -101,7 +101,29 @@ def upsert_finding(
         due_at=utcnow() + timedelta(days=due_in_days),
     )
     db.add(finding)
+    db.flush()
+    _dispatch_finding_event(db, organization_id, "finding.created", finding)
     return finding
+
+
+def _dispatch_finding_event(db, organization_id, event, finding) -> None:
+    from app.services import webhook_service
+
+    webhook_service.dispatch_event(
+        db,
+        organization_id,
+        event,
+        {
+            "id": str(finding.id),
+            "title": finding.title,
+            "status": finding.status,
+            "severity": finding.severity,
+            "risk_score": finding.risk_score,
+            "control_id": str(finding.control_id) if finding.control_id else None,
+            "asset_id": str(finding.asset_id) if finding.asset_id else None,
+            "source": finding.source,
+        },
+    )
 
 
 # --- Workflow transitions -------------------------------------------------------
@@ -129,6 +151,7 @@ def transition_finding(
     if new_status == FindingStatus.RESOLVED.value:
         finding.resolved_at = utcnow()
         finding.resolved_by = user_id
+        _dispatch_finding_event(db, organization_id, "finding.resolved", finding)
     record_audit(
         db,
         action="finding.status_changed",

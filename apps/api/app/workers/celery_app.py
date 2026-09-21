@@ -44,14 +44,25 @@ celery_app.conf.update(
     worker_hijack_root_logger=False,
 )
 
-# Periodic rescans (requires `celery -A app.workers.celery_app beat` alongside the worker).
+# Periodic jobs (requires `celery -A app.workers.celery_app beat` alongside the worker).
+_beat: dict[str, dict] = {}
 if settings.scheduled_rescan_enabled and settings.scheduled_rescan_interval_hours > 0:
-    celery_app.conf.beat_schedule = {
-        "scheduled-rescans": {
-            "task": "complygraph.scheduled_rescans",
-            "schedule": settings.scheduled_rescan_interval_hours * 3600.0,
-        }
+    _beat["scheduled-rescans"] = {
+        "task": "complygraph.scheduled_rescans",
+        "schedule": settings.scheduled_rescan_interval_hours * 3600.0,
     }
+if settings.scheduled_reassessment_enabled and settings.scheduled_reassessment_interval_hours > 0:
+    _beat["scheduled-reassessment"] = {
+        "task": "complygraph.scheduled_reassessment",
+        "schedule": settings.scheduled_reassessment_interval_hours * 3600.0,
+    }
+if settings.reminders_enabled and settings.reminders_interval_hours > 0:
+    _beat["generate-reminders"] = {
+        "task": "complygraph.generate_reminders",
+        "schedule": settings.reminders_interval_hours * 3600.0,
+    }
+if _beat:
+    celery_app.conf.beat_schedule = _beat
 
 # Ensure task modules are imported so they register with the app.
 import app.workers.tasks  # noqa: E402,F401

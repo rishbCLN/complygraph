@@ -114,6 +114,20 @@ def create_incident(
         entity_type="incident",
         entity_id=incident.id,
     )
+    from app.services import webhook_service
+
+    webhook_service.dispatch_event(
+        db,
+        ctx.organization_id,
+        "breach.created",
+        {
+            "id": str(incident.id),
+            "title": incident.title,
+            "severity": incident.severity,
+            "status": incident.status,
+            "affected_records_estimate": incident.affected_records_estimate,
+        },
+    )
     db.commit()
     return _out(incident)
 

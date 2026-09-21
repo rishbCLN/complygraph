@@ -1,11 +1,12 @@
 "use client";
 
 import { Badge } from "@/components/badge";
+import { Button } from "@/components/button";
 import { EmptyState, ErrorState, Panel, Spinner } from "@/components/panel";
 import { Table, TBodyRows, TH, THead } from "@/components/table";
 import { Input, PageHeader } from "@/components/ui";
 import { formatDate, titleCase } from "@/lib/format";
-import { useControls } from "@/lib/queries";
+import { useControls, useMe, useRunReassessment } from "@/lib/queries";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -15,6 +16,22 @@ export default function ControlsPage() {
   const { data, isLoading, isError } = useControls({
     search: search || undefined,
   });
+  const me = useMe();
+  const reassess = useRunReassessment();
+  const [flash, setFlash] = useState<string | null>(null);
+  const canReassess = me.data?.capabilities?.includes("assess_controls") ?? false;
+
+  async function runReassess() {
+    setFlash(null);
+    try {
+      const result = await reassess.mutateAsync();
+      setFlash(
+        `Re-assessed ${result.controls_assessed} controls: ${result.regressions} regressed, ${result.improvements} improved.`,
+      );
+    } catch {
+      setFlash("Re-assessment failed.");
+    }
+  }
 
   return (
     <>
@@ -22,14 +39,26 @@ export default function ControlsPage() {
         title="Controls"
         description="DPDP-aligned control library with continuous assessment status."
         actions={
-          <Input
-            placeholder="Search controls…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-56"
-          />
+          <div className="flex items-center gap-2">
+            <Input
+              placeholder="Search controls…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-56"
+            />
+            {canReassess && (
+              <Button variant="primary" onClick={runReassess} disabled={reassess.isPending}>
+                {reassess.isPending ? "Re-assessing…" : "Re-assess all"}
+              </Button>
+            )}
+          </div>
         }
       />
+      {flash && (
+        <div className="mb-4 rounded border border-accent/40 bg-accent/10 px-3 py-2 text-sm text-accent">
+          {flash}
+        </div>
+      )}
       <Panel title={data ? `${data.length} controls` : "Controls"}>
         {isLoading ? (
           <Spinner />

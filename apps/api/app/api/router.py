@@ -29,14 +29,18 @@ from app.api.routers import (
     findings,
     graph,
     incidents,
+    integrations,
+    notifications,
     organization,
     overrides,
     processing_activities,
+    reassessment,
     regulations,
     reports,
     risks,
     search,
     self_audit,
+    sso,
     tasks,
     vendors,
 )
@@ -73,5 +77,9 @@ for module in (
     campaigns,
     consent,
     privacy_center,
+    notifications,
+    reassessment,
+    integrations,
+    sso,
 ):
     api_router.include_router(module.router)

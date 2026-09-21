@@ -35,6 +35,8 @@ import type {
   DataPosture,
   DsrDiscoveryItem,
   DsrTask,
+  Notification,
+  ReassessmentResult,
   DataRequest,
   Evidence,
   Finding,
@@ -58,6 +60,15 @@ import type {
   Task,
   TopFinding,
   Vendor,
+  IntegrationStatus,
+  WebhookEndpoint,
+  WebhookWithSecret,
+  WebhookDelivery,
+  ExternalTicket,
+  MfaStatus,
+  MfaEnrollment,
+  MfaBackupCodes,
+  SSOProviders,
 } from "./types";
 
 export function useMe() {
@@ -942,5 +953,243 @@ export function useConsentAction() {
       qc.invalidateQueries({ queryKey: ["consent-events"] });
       qc.invalidateQueries({ queryKey: ["consent-summary"] });
     },
+  });
+}
+
+// --- Notifications / reminders (feature #6) --------------------------------
+export function useNotifications(state?: string) {
+  return useQuery({
+    queryKey: ["notifications", state ?? "active"],
+    queryFn: () =>
+      apiFetch<Notification[]>(`/notifications${state ? `?state=${state}` : ""}`),
+    refetchInterval: 60000,
+  });
+}
+
+export function useUnreadCount() {
+  return useQuery({
+    queryKey: ["notifications", "unread-count"],
+    queryFn: () => apiFetch<{ unread: number }>("/notifications/unread-count"),
+    refetchInterval: 60000,
+  });
+}
+
+function invalidateNotifications(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: ["notifications"] });
+}
+
+export function useMarkNotificationRead() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<Notification>(`/notifications/${id}/read`, { method: "POST" }),
+    onSuccess: () => invalidateNotifications(qc),
+  });
+}
+
+export function useDismissNotification() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<Notification>(`/notifications/${id}/dismiss`, { method: "POST" }),
+    onSuccess: () => invalidateNotifications(qc),
+  });
+}
+
+export function useMarkAllNotificationsRead() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch<{ unread: number }>("/notifications/read-all", { method: "POST" }),
+    onSuccess: () => invalidateNotifications(qc),
+  });
+}
+
+export function useGenerateReminders() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ total: number; by_kind: Record<string, number> }>("/notifications/generate", {
+        method: "POST",
+      }),
+    onSuccess: () => invalidateNotifications(qc),
+  });
+}
+
+export function useRunReassessment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch<ReassessmentResult>("/reassessment/run", { method: "POST" }),
+    onSuccess: () => {
+      invalidateNotifications(qc);
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["controls"] });
+    },
+  });
+}
+
+// --- Integrations: status, webhooks, tickets (feature #10) -----------------
+export function useIntegrationStatus() {
+  return useQuery({
+    queryKey: ["integrations", "status"],
+    queryFn: () => apiFetch<IntegrationStatus>("/integrations/status"),
+  });
+}
+
+export function useWebhooks() {
+  return useQuery({
+    queryKey: ["integrations", "webhooks"],
+    queryFn: () => apiFetch<WebhookEndpoint[]>("/integrations/webhooks"),
+  });
+}
+
+export function useWebhookDeliveries(id: string) {
+  return useQuery({
+    queryKey: ["integrations", "webhooks", id, "deliveries"],
+    queryFn: () =>
+      apiFetch<WebhookDelivery[]>(`/integrations/webhooks/${id}/deliveries`),
+    enabled: !!id,
+  });
+}
+
+export function useCreateWebhook() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { name: string; url: string; events: string[] }) =>
+      apiFetch<WebhookWithSecret>("/integrations/webhooks", { method: "POST", body }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["integrations", "webhooks"] }),
+  });
+}
+
+export function useUpdateWebhook() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: {
+      id: string;
+      body: { name?: string; url?: string; events?: string[]; enabled?: boolean };
+    }) =>
+      apiFetch<WebhookEndpoint>(`/integrations/webhooks/${args.id}`, {
+        method: "PATCH",
+        body: args.body,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["integrations", "webhooks"] }),
+  });
+}
+
+export function useDeleteWebhook() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/integrations/webhooks/${id}`, { method: "DELETE", raw: true }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["integrations", "webhooks"] }),
+  });
+}
+
+export function useRotateWebhookSecret() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<WebhookWithSecret>(`/integrations/webhooks/${id}/rotate-secret`, {
+        method: "POST",
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["integrations", "webhooks"] }),
+  });
+}
+
+export function useTestWebhook() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<WebhookDelivery>(`/integrations/webhooks/${id}/test`, { method: "POST" }),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: ["integrations", "webhooks"] });
+      qc.invalidateQueries({ queryKey: ["integrations", "webhooks", id, "deliveries"] });
+    },
+  });
+}
+
+export function useTickets(params: { entity_type: string; entity_id: string }) {
+  const qs = new URLSearchParams({
+    entity_type: params.entity_type,
+    entity_id: params.entity_id,
+  });
+  return useQuery({
+    queryKey: ["tickets", params],
+    queryFn: () => apiFetch<ExternalTicket[]>(`/integrations/tickets?${qs.toString()}`),
+    enabled: !!params.entity_id,
+  });
+}
+
+export function useCreateTicket() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      provider: string;
+      entity_type: string;
+      entity_id: string;
+      summary?: string;
+      description?: string;
+    }) => apiFetch<ExternalTicket>("/integrations/tickets", { method: "POST", body }),
+    onSuccess: (_data, vars) =>
+      qc.invalidateQueries({
+        queryKey: ["tickets", { entity_type: vars.entity_type, entity_id: vars.entity_id }],
+      }),
+  });
+}
+
+// --- MFA (feature #10) -----------------------------------------------------
+export function useMfaStatus() {
+  return useQuery({
+    queryKey: ["mfa", "status"],
+    queryFn: () => apiFetch<MfaStatus>("/auth/mfa"),
+  });
+}
+
+export function useMfaEnroll() {
+  return useMutation({
+    mutationFn: () => apiFetch<MfaEnrollment>("/auth/mfa/enroll", { method: "POST" }),
+  });
+}
+
+export function useMfaActivate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (code: string) =>
+      apiFetch<MfaBackupCodes>("/auth/mfa/activate", { method: "POST", body: { code } }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mfa", "status"] });
+      qc.invalidateQueries({ queryKey: ["me"] });
+    },
+  });
+}
+
+export function useMfaRegenerateBackupCodes() {
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<MfaBackupCodes>("/auth/mfa/backup-codes", { method: "POST" }),
+  });
+}
+
+export function useMfaDisable() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (password: string) =>
+      apiFetch<{ message: string }>("/auth/mfa/disable", {
+        method: "POST",
+        body: { password },
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mfa", "status"] });
+      qc.invalidateQueries({ queryKey: ["me"] });
+    },
+  });
+}
+
+// --- SSO discovery (feature #10) -------------------------------------------
+export function useSSOProviders() {
+  return useQuery({
+    queryKey: ["sso", "providers"],
+    queryFn: () => apiFetch<SSOProviders>("/sso/providers"),
+    retry: false,
+    staleTime: 5 * 60_000,
   });
 }

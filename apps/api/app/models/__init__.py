@@ -16,6 +16,8 @@ from app.models.consent import (
 )
 from app.models.dsr import DSRTask
 from app.models.evidence import ControlEvidence, Evidence
+from app.models.integrations import ExternalTicket, WebhookDelivery, WebhookEndpoint
+from app.models.notification import Notification
 from app.models.findings import Finding, RemediationTask, Scan, ScanResult
 from app.models.identity import (
     AuditEvent,
@@ -72,8 +74,10 @@ __all__ = [
     "DataSubjectRequest",
     "DSRTask",
     "Evidence",
+    "ExternalTicket",
     "Finding",
     "Membership",
+    "Notification",
     "Obligation",
     "Organization",
     "ProcessingActivity",
@@ -85,4 +89,6 @@ __all__ = [
     "Session",
     "User",
     "Vendor",
+    "WebhookDelivery",
+    "WebhookEndpoint",
 ]

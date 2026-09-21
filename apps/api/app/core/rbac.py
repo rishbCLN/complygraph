@@ -29,6 +29,8 @@ MANAGE_TASKS = "manage_tasks"
 MANAGE_RISK = "manage_risk"
 APPROVE_REQUESTS = "approve_requests"  # checker side of maker-checker workflows
 MANAGE_CONSENT = "manage_consent"  # consent purposes, notices, and consent ledger
+MANAGE_INTEGRATIONS = "manage_integrations"  # webhooks, ticketing (Jira/ServiceNow) config
+CREATE_TICKET = "create_ticket"  # push a finding/risk to Jira/ServiceNow
 
 _ALL = {
     VIEW,
@@ -50,6 +52,8 @@ _ALL = {
     MANAGE_RISK,
     APPROVE_REQUESTS,
     MANAGE_CONSENT,
+    MANAGE_INTEGRATIONS,
+    CREATE_TICKET,
 }
 
 ROLE_CAPABILITIES: dict[str, set[str]] = {
@@ -71,6 +75,7 @@ ROLE_CAPABILITIES: dict[str, set[str]] = {
         MANAGE_RISK,
         APPROVE_REQUESTS,
         MANAGE_CONSENT,
+        CREATE_TICKET,
     },
     Role.SECURITY_ANALYST.value: {
         VIEW,
@@ -83,6 +88,7 @@ ROLE_CAPABILITIES: dict[str, set[str]] = {
         GENERATE_REPORTS,
         MANAGE_TASKS,
         MANAGE_RISK,
+        CREATE_TICKET,
     },
     Role.ENGINEER.value: {
         VIEW,

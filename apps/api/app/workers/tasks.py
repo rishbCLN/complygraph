@@ -53,6 +53,62 @@ def analyze_ai_systems_task(organization_id: str) -> dict:
         db.close()
 
 
+@celery_app.task(name="complygraph.scheduled_reassessment")
+def scheduled_reassessment_task() -> dict:
+    """Re-run the control engine for every org on the beat cadence.
+
+    Records fresh ControlAssessment history and raises regression notifications.
+    Safe eager (in-process) or on a worker.
+    """
+    from sqlalchemy import select
+
+    from app.core.config import settings
+    from app.models.identity import Organization
+    from app.services.reassessment_service import run_reassessment
+
+    if not settings.scheduled_reassessment_enabled:
+        return {"orgs": 0, "reason": "disabled"}
+
+    processed = 0
+    total_regressions = 0
+    db = SessionLocal()
+    try:
+        for org in db.scalars(select(Organization)):
+            summary = run_reassessment(db, org)
+            db.commit()
+            processed += 1
+            total_regressions += summary["regressions"]
+    finally:
+        db.close()
+    return {"orgs": processed, "regressions": total_regressions}
+
+
+@celery_app.task(name="complygraph.generate_reminders")
+def generate_reminders_task() -> dict:
+    """Generate reminder notifications for every org on the beat cadence."""
+    from sqlalchemy import select
+
+    from app.core.config import settings
+    from app.models.identity import Organization
+    from app.services.reminder_service import generate_for_org
+
+    if not settings.reminders_enabled:
+        return {"orgs": 0, "reason": "disabled"}
+
+    processed = 0
+    total = 0
+    db = SessionLocal()
+    try:
+        for org in db.scalars(select(Organization)):
+            counts = generate_for_org(db, org)
+            db.commit()
+            processed += 1
+            total += counts.get("total", 0)
+    finally:
+        db.close()
+    return {"orgs": processed, "reminders": total}
+
+
 @celery_app.task(name="complygraph.scheduled_rescans")
 def scheduled_rescans_task() -> dict:
     """Enqueue rescans for connectors that have gone stale.
