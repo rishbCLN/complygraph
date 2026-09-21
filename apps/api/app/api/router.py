@@ -12,9 +12,11 @@ from fastapi import APIRouter
 from app.api.routers import (
     ai,
     ai_systems,
+    approvals,
     assets,
     audit,
     auth,
+    campaigns,
     connectors,
     control_mappings,
     controls,
@@ -30,7 +32,9 @@ from app.api.routers import (
     processing_activities,
     regulations,
     reports,
+    risks,
     search,
+    self_audit,
     tasks,
     vendors,
 )
@@ -61,5 +65,9 @@ for module in (
     search,
     overrides,
     documents,
+    self_audit,
+    risks,
+    approvals,
+    campaigns,
 ):
     api_router.include_router(module.router)

@@ -334,6 +334,46 @@ class OwnerType(str, Enum):
     BUSINESS = "BUSINESS"
 
 
+class RiskStatus(str, Enum):
+    IDENTIFIED = "IDENTIFIED"
+    ASSESSED = "ASSESSED"
+    TREATING = "TREATING"
+    ACCEPTED = "ACCEPTED"
+    MITIGATED = "MITIGATED"
+    CLOSED = "CLOSED"
+
+
+class RiskCategory(str, Enum):
+    PRIVACY = "PRIVACY"
+    SECURITY = "SECURITY"
+    OPERATIONAL = "OPERATIONAL"
+    COMPLIANCE = "COMPLIANCE"
+    VENDOR = "VENDOR"
+    AI = "AI"
+    FINANCIAL = "FINANCIAL"
+    REPUTATIONAL = "REPUTATIONAL"
+
+
+class TreatmentStrategy(str, Enum):
+    """ISO 31000-style risk treatment options."""
+
+    MITIGATE = "MITIGATE"  # reduce likelihood/impact via controls
+    ACCEPT = "ACCEPT"  # tolerate with documented rationale
+    TRANSFER = "TRANSFER"  # insure / contractually shift
+    AVOID = "AVOID"  # stop the activity
+
+
+def risk_severity(score: int) -> str:
+    """Map a 1..25 likelihood*impact score to a severity band."""
+    if score >= 20:
+        return "CRITICAL"
+    if score >= 12:
+        return "HIGH"
+    if score >= 6:
+        return "MEDIUM"
+    return "LOW"
+
+
 class MappingRelation(str, Enum):
     """How a source control relates to a target control in another framework.
 

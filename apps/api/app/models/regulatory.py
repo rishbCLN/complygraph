@@ -32,6 +32,14 @@ class Regulation(Base, TimestampMixin):
     effective_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String(40), default="IN_FORCE")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # NULL => system/shipped regulation (visible to every tenant). A set value
+    # denotes a tenant-authored custom framework/pack, visible only to that org.
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("users.id", ondelete="SET NULL")
+    )
 
     obligations: Mapped[list["Obligation"]] = relationship(back_populates="regulation")
 
@@ -165,3 +173,6 @@ class ControlAssessment(Base, TimestampMixin):
     reason: Mapped[str | None] = mapped_column(Text)
     evidence_count: Mapped[int] = mapped_column(Integer, default=0)
     automated: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Human sign-off via the maker-checker workflow (feature #4).
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(GUID())
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

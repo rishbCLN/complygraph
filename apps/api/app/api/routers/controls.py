@@ -61,7 +61,19 @@ def list_controls(
     search: str | None = Query(None),
 ) -> list[ControlOut]:
     assessment_date = get_assessment_date(ctx.organization)
-    stmt = select(Control)
+    # Visible controls: those under system regulations (NULL org) plus this org's
+    # own custom packs. Excludes other tenants' custom-pack controls.
+    stmt = (
+        select(Control)
+        .join(Obligation, Obligation.id == Control.obligation_id)
+        .join(Regulation, Regulation.id == Obligation.regulation_id)
+        .where(
+            or_(
+                Regulation.organization_id.is_(None),
+                Regulation.organization_id == ctx.organization_id,
+            )
+        )
+    )
     if category:
         stmt = stmt.where(Control.category == category)
     if search:
@@ -105,6 +117,9 @@ def get_control(
     assessment_date = get_assessment_date(ctx.organization)
     obligation = db.get(Obligation, c.obligation_id)
     regulation = db.get(Regulation, obligation.regulation_id) if obligation else None
+    # Do not expose another tenant's custom-pack control.
+    if regulation is not None and regulation.organization_id is not None and regulation.organization_id != ctx.organization_id:
+        raise NotFoundError("Control not found.")
     latest = assessment_service.latest_assessment(db, ctx.organization_id, c.id)
     return ControlOut(
         id=str(c.id),

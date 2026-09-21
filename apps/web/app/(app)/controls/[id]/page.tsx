@@ -11,8 +11,11 @@ import {
   useControl,
   useControlAssessment,
   useControlEvidence,
+  useControlMappings,
+  useReusableEvidence,
 } from "@/lib/queries";
 import { CalendarClock } from "lucide-react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 
 export default function ControlDetailPage() {
@@ -20,6 +23,8 @@ export default function ControlDetailPage() {
   const control = useControl(id);
   const assessment = useControlAssessment(id);
   const evidence = useControlEvidence(id);
+  const mappings = useControlMappings(id);
+  const reusable = useReusableEvidence(id);
   const assess = useAssessControlMutation();
 
   if (control.isLoading) {
@@ -170,6 +175,111 @@ export default function ControlDetailPage() {
               </Table>
             )}
           </Panel>
+
+          <Panel
+            title="Cross-framework mappings"
+            actions={
+              <Link
+                href="/control-mappings"
+                className="text-xs text-accent hover:underline"
+              >
+                Mapping explorer
+              </Link>
+            }
+          >
+            {mappings.isLoading ? (
+              <Spinner />
+            ) : !mappings.data || mappings.data.length === 0 ? (
+              <EmptyState message="No controls in other frameworks are mapped to this control." />
+            ) : (
+              <Table>
+                <THead>
+                  <tr>
+                    <TH>Direction</TH>
+                    <TH>Control</TH>
+                    <TH>Framework</TH>
+                    <TH>Relation</TH>
+                    <TH>Confidence</TH>
+                  </tr>
+                </THead>
+                <TBodyRows
+                  rows={mappings.data}
+                  render={(m) => (
+                    <tr key={m.id} className="border-b border-border/60">
+                      <td className="px-4 py-2.5 text-muted">
+                        {m.direction === "outgoing" ? "→ maps to" : "← mapped by"}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <Link
+                          href={`/controls/${m.other.id}`}
+                          className="font-mono text-xs text-accent hover:underline"
+                        >
+                          {m.other.code}
+                        </Link>
+                        <div className="text-xs text-muted">{m.other.title}</div>
+                      </td>
+                      <td className="px-4 py-2.5 text-muted">
+                        {m.other.regulation_name || "—"}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <Badge label={m.relation_type} />
+                      </td>
+                      <td className="px-4 py-2.5 tabular-nums text-muted">
+                        {Math.round(m.confidence * 100)}%
+                      </td>
+                    </tr>
+                  )}
+                />
+              </Table>
+            )}
+          </Panel>
+
+          {reusable.data && reusable.data.length > 0 && (
+            <Panel title="Reusable evidence (review required)">
+              <div className="border-b border-border/60 px-4 py-2.5 text-xs text-muted">
+                Evidence collected for mapped controls that may help satisfy this
+                control. Human review is required before it counts here — it is not
+                applied automatically.
+              </div>
+              <Table>
+                <THead>
+                  <tr>
+                    <TH>Evidence</TH>
+                    <TH>From control</TH>
+                    <TH>Via relation</TH>
+                    <TH>Freshness</TH>
+                  </tr>
+                </THead>
+                <TBodyRows
+                  rows={reusable.data}
+                  render={(r) => (
+                    <tr key={r.via_mapping_id + r.evidence_id} className="border-b border-border/60">
+                      <td className="px-4 py-2.5">
+                        {r.evidence_name}
+                        <div className="text-xs text-muted">
+                          {titleCase(r.evidence_type)}
+                        </div>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <Link
+                          href={`/controls/${r.source_control.id}`}
+                          className="font-mono text-xs text-accent hover:underline"
+                        >
+                          {r.source_control.code}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <Badge label={r.mapping_relation} />
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <Badge label={r.status} />
+                      </td>
+                    </tr>
+                  )}
+                />
+              </Table>
+            </Panel>
+          )}
         </div>
 
         <div className="space-y-4">

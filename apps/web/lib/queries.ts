@@ -11,14 +11,20 @@ import type {
   AISystemComponent,
   AISystemFlow,
   AnalysisReport,
+  ApprovalRequest,
   Assessment,
   Asset,
+  Campaign,
+  CampaignResult,
   AssetControl,
   AssetField,
   AuditEvent,
   Connector,
   Control,
   ControlEvidence,
+  ControlMapping,
+  ControlMappingGraph,
+  ControlMappingRef,
   DashboardSummary,
   DataGraph,
   DataPosture,
@@ -35,8 +41,12 @@ import type {
   PortfolioRollup,
   ProcessingActivity,
   Regulation,
+  ReusableEvidence,
+  Risk,
+  RiskSummary,
   Scan,
   SearchResults,
+  SelfAudit,
   SeverityCount,
   Task,
   TopFinding,
@@ -204,6 +214,64 @@ export function useControlEvidence(id: string) {
   });
 }
 
+export function useControlMappings(id: string) {
+  return useQuery({
+    queryKey: ["control", id, "mappings"],
+    queryFn: () => apiFetch<ControlMappingRef[]>(`/controls/${id}/mappings`),
+    enabled: !!id,
+  });
+}
+
+export function useReusableEvidence(id: string) {
+  return useQuery({
+    queryKey: ["control", id, "reusable-evidence"],
+    queryFn: () =>
+      apiFetch<ReusableEvidence[]>(`/controls/${id}/reusable-evidence`),
+    enabled: !!id,
+  });
+}
+
+export function useControlMappingsList() {
+  return useQuery({
+    queryKey: ["control-mappings"],
+    queryFn: () => apiFetch<ControlMapping[]>("/control-mappings"),
+  });
+}
+
+export function useControlMappingGraph() {
+  return useQuery({
+    queryKey: ["control-mappings", "graph"],
+    queryFn: () => apiFetch<ControlMappingGraph>("/control-mappings/graph"),
+  });
+}
+
+export function useCreateControlMapping() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      source_control_id: string;
+      target_control_id: string;
+      relation_type: string;
+      rationale?: string;
+      confidence?: number;
+    }) => apiFetch<ControlMapping>("/control-mappings", { method: "POST", body }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["control-mappings"] });
+    },
+  });
+}
+
+export function useDeleteControlMapping() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/control-mappings/${id}`, { method: "DELETE", raw: true }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["control-mappings"] });
+    },
+  });
+}
+
 export function useAssessControlMutation() {
   const qc = useQueryClient();
   return useMutation({
@@ -254,6 +322,47 @@ export function useRegulations() {
   return useQuery({
     queryKey: ["regulations"],
     queryFn: () => apiFetch<Regulation[]>("/regulations"),
+  });
+}
+
+export function useSelfAudit() {
+  return useQuery({
+    queryKey: ["self-audit"],
+    queryFn: () => apiFetch<SelfAudit>("/self-audit"),
+  });
+}
+
+export function useCustomPacks() {
+  return useQuery({
+    queryKey: ["regulations", "packs"],
+    queryFn: () => apiFetch<Regulation[]>("/regulations/packs"),
+  });
+}
+
+export function useImportPackMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { format: "yaml" | "json"; content: string }) =>
+      apiFetch<Regulation>("/regulations/packs/import", {
+        method: "POST",
+        body: args,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["regulations"] });
+      qc.invalidateQueries({ queryKey: ["controls"] });
+    },
+  });
+}
+
+export function useDeletePackMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/regulations/packs/${id}`, { method: "DELETE", raw: true }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["regulations"] });
+      qc.invalidateQueries({ queryKey: ["controls"] });
+    },
   });
 }
 
@@ -419,6 +528,189 @@ export function useSearch(q: string) {
     queryKey: ["search", q],
     queryFn: () => apiFetch<SearchResults>(`/search?q=${encodeURIComponent(q)}`),
     enabled: q.trim().length >= 2,
+  });
+}
+
+// --- Approvals (maker-checker, feature #4) --------------------------------------
+
+export function useApprovals(params: { status?: string; entity_type?: string } = {}) {
+  const qs = new URLSearchParams();
+  if (params.status) qs.set("status", params.status);
+  if (params.entity_type) qs.set("entity_type", params.entity_type);
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return useQuery({
+    queryKey: ["approvals", params],
+    queryFn: () => apiFetch<ApprovalRequest[]>(`/approvals${suffix}`),
+  });
+}
+
+export function useSubmitApproval() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      entity_type: string;
+      entity_id: string;
+      action: string;
+      payload?: Record<string, unknown>;
+      summary?: string;
+    }) => apiFetch<ApprovalRequest>("/approvals", { method: "POST", body }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["approvals"] }),
+  });
+}
+
+export function useReviewApproval() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; decision: "approve" | "reject" | "cancel"; note?: string }) =>
+      apiFetch<ApprovalRequest>(`/approvals/${args.id}/${args.decision}`, {
+        method: "POST",
+        body: args.decision === "cancel" ? undefined : { note: args.note },
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["approvals"] });
+      qc.invalidateQueries({ queryKey: ["findings"] });
+      qc.invalidateQueries({ queryKey: ["risks"] });
+    },
+  });
+}
+
+// --- Audit campaigns (feature #5) -----------------------------------------------
+
+export function useCampaigns(status?: string) {
+  const suffix = status ? `?status=${status}` : "";
+  return useQuery({
+    queryKey: ["campaigns", status || "all"],
+    queryFn: () => apiFetch<Campaign[]>(`/campaigns${suffix}`),
+  });
+}
+
+export function useCampaign(id: string) {
+  return useQuery({
+    queryKey: ["campaign", id],
+    queryFn: () => apiFetch<Campaign>(`/campaigns/${id}`),
+    enabled: !!id,
+  });
+}
+
+export function useCampaignResults(id: string, status?: string) {
+  const suffix = status ? `?status=${status}` : "";
+  return useQuery({
+    queryKey: ["campaign", id, "results", status || "all"],
+    queryFn: () => apiFetch<CampaignResult[]>(`/campaigns/${id}/results${suffix}`),
+    enabled: !!id,
+  });
+}
+
+export function useCreateCampaign() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { name: string; description?: string; scope_regulation_ids?: string[] }) =>
+      apiFetch<Campaign>("/campaigns", { method: "POST", body }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["campaigns"] }),
+  });
+}
+
+export function useRunCampaign() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch<Campaign>(`/campaigns/${id}/run`, { method: "POST" }),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: ["campaigns"] });
+      qc.invalidateQueries({ queryKey: ["campaign", id] });
+    },
+  });
+}
+
+export function useDeleteCampaign() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch(`/campaigns/${id}`, { method: "DELETE", raw: true }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["campaigns"] }),
+  });
+}
+
+// --- Risk register (feature #3) -------------------------------------------------
+
+export function useRisks(params: { status?: string; category?: string } = {}) {
+  const qs = new URLSearchParams();
+  if (params.status) qs.set("status", params.status);
+  if (params.category) qs.set("category", params.category);
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return useQuery({
+    queryKey: ["risks", params],
+    queryFn: () => apiFetch<Risk[]>(`/risks${suffix}`),
+  });
+}
+
+export function useRisk(id: string) {
+  return useQuery({
+    queryKey: ["risk", id],
+    queryFn: () => apiFetch<Risk>(`/risks/${id}`),
+    enabled: !!id,
+  });
+}
+
+export function useRiskSummary() {
+  return useQuery({
+    queryKey: ["risks", "summary"],
+    queryFn: () => apiFetch<RiskSummary>("/risks/summary"),
+  });
+}
+
+export function useCreateRisk() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiFetch<Risk>("/risks", { method: "POST", body }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["risks"] }),
+  });
+}
+
+export function useUpdateRisk() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; body: Record<string, unknown> }) =>
+      apiFetch<Risk>(`/risks/${args.id}`, { method: "PATCH", body: args.body }),
+    onSuccess: (_data, args) => {
+      qc.invalidateQueries({ queryKey: ["risk", args.id] });
+      qc.invalidateQueries({ queryKey: ["risks"] });
+    },
+  });
+}
+
+export function useAcceptRisk() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; rationale: string; expires_at?: string }) =>
+      apiFetch<Risk>(`/risks/${args.id}/accept`, {
+        method: "POST",
+        body: { rationale: args.rationale, expires_at: args.expires_at },
+      }),
+    onSuccess: (_data, args) => {
+      qc.invalidateQueries({ queryKey: ["risk", args.id] });
+      qc.invalidateQueries({ queryKey: ["risks"] });
+    },
+  });
+}
+
+export function useCloseRisk() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<Risk>(`/risks/${id}/close`, { method: "POST" }),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: ["risk", id] });
+      qc.invalidateQueries({ queryKey: ["risks"] });
+    },
+  });
+}
+
+export function useDeleteRisk() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/risks/${id}`, { method: "DELETE", raw: true }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["risks"] }),
   });
 }
 

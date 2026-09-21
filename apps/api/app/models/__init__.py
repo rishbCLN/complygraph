@@ -6,6 +6,8 @@ from app.models.ai_systems import (
     AISystemFlow,
     AISystemSnapshot,
 )
+from app.models.approval import ApprovalRequest
+from app.models.campaign import AuditCampaign, CampaignResult
 from app.models.evidence import ControlEvidence, Evidence
 from app.models.findings import Finding, RemediationTask, Scan, ScanResult
 from app.models.identity import (
@@ -25,6 +27,7 @@ from app.models.inventory import (
     Vendor,
 )
 from app.models.operations import AIInvestigation, BreachIncident, DataSubjectRequest
+from app.models.risk import Risk
 from app.models.regulatory import (
     Control,
     ControlAssessment,
@@ -40,7 +43,10 @@ __all__ = [
     "AISystemComponent",
     "AISystemFlow",
     "AISystemSnapshot",
+    "ApprovalRequest",
     "AssetField",
+    "AuditCampaign",
+    "CampaignResult",
     "AuditEvent",
     "BreachIncident",
     "ClassificationOverride",
@@ -61,6 +67,7 @@ __all__ = [
     "ProcessingActivity",
     "Regulation",
     "RemediationTask",
+    "Risk",
     "Scan",
     "ScanResult",
     "Session",

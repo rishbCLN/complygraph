@@ -26,6 +26,8 @@ MANAGE_BREACH = "manage_breach"
 RUN_AI = "run_ai"
 GENERATE_REPORTS = "generate_reports"
 MANAGE_TASKS = "manage_tasks"
+MANAGE_RISK = "manage_risk"
+APPROVE_REQUESTS = "approve_requests"  # checker side of maker-checker workflows
 
 _ALL = {
     VIEW,
@@ -44,6 +46,8 @@ _ALL = {
     RUN_AI,
     GENERATE_REPORTS,
     MANAGE_TASKS,
+    MANAGE_RISK,
+    APPROVE_REQUESTS,
 }
 
 ROLE_CAPABILITIES: dict[str, set[str]] = {
@@ -62,6 +66,8 @@ ROLE_CAPABILITIES: dict[str, set[str]] = {
         RUN_AI,
         GENERATE_REPORTS,
         MANAGE_TASKS,
+        MANAGE_RISK,
+        APPROVE_REQUESTS,
     },
     Role.SECURITY_ANALYST.value: {
         VIEW,
@@ -73,6 +79,7 @@ ROLE_CAPABILITIES: dict[str, set[str]] = {
         RUN_AI,
         GENERATE_REPORTS,
         MANAGE_TASKS,
+        MANAGE_RISK,
     },
     Role.ENGINEER.value: {
         VIEW,

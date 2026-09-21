@@ -10,6 +10,7 @@ from app.api.deps import AuthContext, get_current_context
 from app.core.audit import record_audit
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.rbac import ROLE_CAPABILITIES
 from app.security.tokens import SESSION_COOKIE_NAME
 from app.services import auth_service
 
@@ -38,6 +39,7 @@ class MeResponse(BaseModel):
     email: str
     full_name: str
     role: str
+    capabilities: list[str]
     organization: OrgSummary
 
 
@@ -81,6 +83,7 @@ def login(
         email=user.email,
         full_name=user.full_name,
         role=membership.role,
+        capabilities=sorted(ROLE_CAPABILITIES.get(membership.role, set())),
         organization=OrgSummary(
             id=str(org.id), name=org.name, slug=org.slug, role=membership.role
         ),
@@ -106,6 +109,7 @@ def me(ctx: AuthContext = Depends(get_current_context)) -> MeResponse:
         email=ctx.user.email,
         full_name=ctx.user.full_name,
         role=ctx.role,
+        capabilities=sorted(ROLE_CAPABILITIES.get(ctx.role, set())),
         organization=OrgSummary(
             id=str(ctx.organization.id),
             name=ctx.organization.name,

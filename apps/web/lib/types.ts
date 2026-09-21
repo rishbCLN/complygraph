@@ -13,7 +13,67 @@ export type Me = {
   email: string;
   full_name: string;
   role: string;
+  capabilities: string[];
   organization: { id: string; name: string; slug: string; role: string };
+};
+
+// Audit campaigns (feature #5).
+export type CampaignSummary = {
+  total: number;
+  applicable: number;
+  passing: number;
+  by_status: Record<string, number>;
+  coverage: number;
+};
+
+export type Campaign = {
+  id: string;
+  name: string;
+  description: string | null;
+  scope_regulation_ids: string[] | null;
+  status: string;
+  assessment_date: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  summary: CampaignSummary | null;
+  created_at: string | null;
+};
+
+export type CampaignResult = {
+  id: string;
+  control_id: string | null;
+  control_code: string;
+  control_title: string | null;
+  regulation_name: string | null;
+  category: string | null;
+  status: string;
+  score: number;
+  reason: string | null;
+};
+
+export type CampaignCompare = {
+  campaign_id: string;
+  baseline_id: string;
+  regressed: { code: string; from: string; to: string }[];
+  improved: { code: string; from: string; to: string }[];
+  added: { code: string; status: string }[];
+  removed: { code: string; status: string }[];
+};
+
+// Maker-checker approval workflow (feature #4).
+export type ApprovalRequest = {
+  id: string;
+  entity_type: string;
+  entity_id: string;
+  action: string;
+  payload: Record<string, unknown> | null;
+  summary: string | null;
+  status: string;
+  submitted_by: string | null;
+  submitted_at: string;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  review_note: string | null;
 };
 
 export type DashboardSummary = {
@@ -83,6 +143,91 @@ export type Control = {
   severity_default: string;
   latest_status: string | null;
   latest_score: number | null;
+};
+
+export type MappedControl = {
+  id: string;
+  code: string;
+  title: string;
+  category: string;
+  regulation_id: string | null;
+  regulation_name: string | null;
+};
+
+export type ControlMapping = {
+  id: string;
+  source: MappedControl;
+  target: MappedControl;
+  relation_type: string;
+  rationale: string | null;
+  confidence: number;
+  system: boolean;
+};
+
+export type ControlMappingGraph = {
+  nodes: MappedControl[];
+  edges: {
+    id: string;
+    source: string;
+    target: string;
+    relation_type: string;
+    confidence: number;
+    system: boolean;
+  }[];
+};
+
+// Per-control mapping (normalised to an outward view via `direction`).
+export type ControlMappingRef = {
+  id: string;
+  relation_type: string;
+  rationale: string | null;
+  confidence: number;
+  system: boolean;
+  direction: "outgoing" | "incoming";
+  other: MappedControl;
+};
+
+export type ReusableEvidence = {
+  evidence_id: string;
+  evidence_name: string;
+  evidence_type: string;
+  status: string;
+  relation_type_on_source: string;
+  via_mapping_id: string;
+  mapping_relation: string;
+  mapping_confidence: number;
+  source_control: MappedControl;
+  requires_review: boolean;
+};
+
+export type QualityItem = {
+  type: string;
+  id: string;
+  label: string;
+  detail: string;
+};
+
+export type QualityCheck = {
+  key: string;
+  title: string;
+  category: string;
+  severity: string;
+  recommendation: string;
+  total: number;
+  complete: number;
+  incomplete: number;
+  score: number;
+  items: QualityItem[];
+  items_truncated: boolean;
+};
+
+export type SelfAudit = {
+  organization: string;
+  assessment_date: string;
+  overall_score: number;
+  total_gaps: number;
+  check_count: number;
+  checks: QualityCheck[];
 };
 
 export type Assessment = {
@@ -156,10 +301,15 @@ export type Regulation = {
   jurisdiction: string;
   version: string | null;
   source_document: string | null;
+  source_url?: string | null;
+  pack?: string | null;
+  pack_version?: string | null;
+  legal_status?: string;
   effective_from: string | null;
   status: string;
   enabled: boolean;
   obligation_count: number;
+  is_custom: boolean;
 };
 
 export type Obligation = {
@@ -433,6 +583,53 @@ export type AISystemFlow = {
   data_categories: string[] | null;
   contains_personal_data: boolean;
   cross_border: boolean;
+};
+
+// Risk register (feature #3).
+export type Risk = {
+  id: string;
+  title: string;
+  description: string | null;
+  category: string;
+  status: string;
+  owner: string | null;
+  inherent_likelihood: number;
+  inherent_impact: number;
+  residual_likelihood: number;
+  residual_impact: number;
+  inherent_score: number;
+  inherent_severity: string;
+  residual_score: number;
+  residual_severity: string;
+  treatment_strategy: string;
+  treatment_plan: string | null;
+  single_loss_expectancy: number | null;
+  annual_rate_of_occurrence: number | null;
+  ale: number | null;
+  rto_hours: number | null;
+  rpo_hours: number | null;
+  max_tolerable_downtime_hours: number | null;
+  business_impact: string | null;
+  accepted_by: string | null;
+  accepted_at: string | null;
+  acceptance_rationale: string | null;
+  acceptance_expires_at: string | null;
+  review_due_at: string | null;
+  control_id: string | null;
+  finding_id: string | null;
+  vendor_id: string | null;
+  ai_system_id: string | null;
+  processing_activity_id: string | null;
+  created_at: string | null;
+};
+
+export type RiskSummary = {
+  total: number;
+  open: number;
+  by_status: Record<string, number>;
+  by_severity: Record<string, number>;
+  heatmap: number[][];
+  total_ale: number;
 };
 
 // How a derived fact was determined (Feature #4).

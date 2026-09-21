@@ -16,6 +16,7 @@ anthropic==0.42.0
 reportlab==4.2.5
 email-validator==2.2.0
 pypdf==5.1.0  # optional: policy-document PDF text extraction
+pyyaml==6.0.2  # custom regulatory pack authoring (YAML import)
 
 # dev / test
 pytest==8.3.4
