@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     session_ttl_hours: int = 12
     login_rate_limit_attempts: int = 5
     login_rate_limit_window_seconds: int = 300
+    # Public Privacy Center portal: per-identifier write throttle (grant/withdraw/DSR).
+    privacy_center_enabled: bool = True
+    privacy_center_rate_limit_attempts: int = 20
+    privacy_center_rate_limit_window_seconds: int = 300
     cors_origins: str = "http://localhost:3000"
 
     # File uploads

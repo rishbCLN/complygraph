@@ -28,6 +28,7 @@ GENERATE_REPORTS = "generate_reports"
 MANAGE_TASKS = "manage_tasks"
 MANAGE_RISK = "manage_risk"
 APPROVE_REQUESTS = "approve_requests"  # checker side of maker-checker workflows
+MANAGE_CONSENT = "manage_consent"  # consent purposes, notices, and consent ledger
 
 _ALL = {
     VIEW,
@@ -48,6 +49,7 @@ _ALL = {
     MANAGE_TASKS,
     MANAGE_RISK,
     APPROVE_REQUESTS,
+    MANAGE_CONSENT,
 }
 
 ROLE_CAPABILITIES: dict[str, set[str]] = {
@@ -68,6 +70,7 @@ ROLE_CAPABILITIES: dict[str, set[str]] = {
         MANAGE_TASKS,
         MANAGE_RISK,
         APPROVE_REQUESTS,
+        MANAGE_CONSENT,
     },
     Role.SECURITY_ANALYST.value: {
         VIEW,

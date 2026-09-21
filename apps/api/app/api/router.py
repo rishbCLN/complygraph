@@ -18,11 +18,13 @@ from app.api.routers import (
     auth,
     campaigns,
     connectors,
+    consent,
     control_mappings,
     controls,
     dashboard,
     data_requests,
     documents,
+    privacy_center,
     evidence,
     findings,
     graph,
@@ -69,5 +71,7 @@ for module in (
     risks,
     approvals,
     campaigns,
+    consent,
+    privacy_center,
 ):
     api_router.include_router(module.router)

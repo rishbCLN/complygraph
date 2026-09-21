@@ -304,6 +304,37 @@ class DSRStatus(str, Enum):
     REJECTED = "REJECTED"
 
 
+class ConsentStatus(str, Enum):
+    """Current state of a data principal's consent for one purpose."""
+
+    GRANTED = "GRANTED"
+    WITHDRAWN = "WITHDRAWN"
+    EXPIRED = "EXPIRED"
+
+
+class ConsentMethod(str, Enum):
+    """How a consent action was captured (DPDP requires a clear affirmative act)."""
+
+    PRIVACY_CENTER = "PRIVACY_CENTER"  # data principal self-service portal
+    STAFF_RECORDED = "STAFF_RECORDED"  # entered by an operator on the principal's behalf
+    IMPORT = "IMPORT"  # migrated from an external system
+    API = "API"  # captured via integration
+
+
+class ConsentEventType(str, Enum):
+    """Append-only ledger event kinds."""
+
+    GRANTED = "GRANTED"
+    WITHDRAWN = "WITHDRAWN"
+    RENEWED = "RENEWED"
+    EXPIRED = "EXPIRED"
+
+
+class PurposeStatus(str, Enum):
+    ACTIVE = "ACTIVE"
+    ARCHIVED = "ARCHIVED"
+
+
 class BreachStatus(str, Enum):
     DETECTED = "DETECTED"
     INVESTIGATING = "INVESTIGATING"

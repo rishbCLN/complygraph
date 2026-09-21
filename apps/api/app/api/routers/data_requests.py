@@ -17,7 +17,9 @@ from app.core.database import get_db, utcnow
 from app.core.enums import DSRStatus, DSRType
 from app.core.errors import ValidationError
 from app.core.rbac import MANAGE_DSR
+from app.models.dsr import DSRTask
 from app.models.operations import DataSubjectRequest
+from app.services import dsr_service
 
 router = APIRouter(prefix="/data-requests", tags=["data-requests"])
 
@@ -38,6 +40,29 @@ class DSROut(BaseModel):
     due_at: datetime | None
     completed_at: datetime | None
     notes: str | None
+    fulfillment: dict | None = None
+    fulfilled_at: datetime | None = None
+
+
+class DSRTaskOut(BaseModel):
+    id: str
+    asset_id: str | None
+    asset_name: str
+    connector_type: str | None
+    action: str
+    status: str
+    matched_fields: dict | None
+    records_affected: int | None
+    detail: str | None
+    executed_at: datetime | None
+
+
+class DiscoveryItem(BaseModel):
+    asset_id: str
+    asset_name: str
+    connector_type: str | None
+    pii_fields: list[dict]
+    row_count: int | None
 
 
 class DSRUpdate(BaseModel):
@@ -57,6 +82,23 @@ def _out(r: DataSubjectRequest) -> DSROut:
         due_at=r.due_at,
         completed_at=r.completed_at,
         notes=r.notes,
+        fulfillment=r.fulfillment,
+        fulfilled_at=r.fulfilled_at,
+    )
+
+
+def _task_out(t: DSRTask) -> DSRTaskOut:
+    return DSRTaskOut(
+        id=str(t.id),
+        asset_id=str(t.asset_id) if t.asset_id else None,
+        asset_name=t.asset_name,
+        connector_type=t.connector_type,
+        action=t.action,
+        status=t.status,
+        matched_fields=t.matched_fields,
+        records_affected=t.records_affected,
+        detail=t.detail,
+        executed_at=t.executed_at,
     )
 
 
@@ -172,3 +214,65 @@ def complete_request(
     )
     db.commit()
     return _out(req)
+
+
+@router.get("/{request_id}/discover", response_model=list[DiscoveryItem])
+def discover_data(
+    request_id: uuid.UUID,
+    ctx: AuthContext = Depends(require_capability(MANAGE_DSR)),
+    db: Session = Depends(get_db),
+) -> list[DiscoveryItem]:
+    """Preview which datastores hold the principal's personal data (read-only)."""
+    get_org_scoped(db, DataSubjectRequest, request_id, ctx.organization_id)  # scope check
+    discovered = dsr_service.discover(db, ctx.organization_id)
+    return [
+        DiscoveryItem(
+            asset_id=str(entry["asset"].id),
+            asset_name=entry["asset"].display_name or entry["asset"].name,
+            connector_type=entry["connector"].type if entry["connector"] else None,
+            pii_fields=entry["pii_fields"],
+            row_count=entry["row_count"],
+        )
+        for entry in discovered
+    ]
+
+
+@router.post("/{request_id}/fulfill", response_model=DSROut)
+def fulfill_request(
+    request_id: uuid.UUID,
+    ctx: AuthContext = Depends(require_capability(MANAGE_DSR)),
+    db: Session = Depends(get_db),
+) -> DSROut:
+    """Run the fulfillment engine: discover, execute per-store, and package.
+
+    Requires a verified identity. Collects (ACCESS) or erases (ERASURE) the
+    principal's data across managed datastores; non-automatable stores are
+    recorded for manual completion.
+    """
+    req = get_org_scoped(db, DataSubjectRequest, request_id, ctx.organization_id)
+    dsr_service.execute(db, req)
+    record_audit(
+        db,
+        action="data_request.fulfilled",
+        organization_id=ctx.organization_id,
+        user_id=ctx.user.id,
+        entity_type="data_request",
+        entity_id=req.id,
+        metadata={
+            "action": (req.fulfillment or {}).get("action"),
+            "stores_completed": (req.fulfillment or {}).get("stores_completed"),
+        },
+    )
+    db.commit()
+    db.refresh(req)
+    return _out(req)
+
+
+@router.get("/{request_id}/tasks", response_model=list[DSRTaskOut])
+def get_tasks(
+    request_id: uuid.UUID,
+    ctx: AuthContext = Depends(get_current_context),
+    db: Session = Depends(get_db),
+) -> list[DSRTaskOut]:
+    get_org_scoped(db, DataSubjectRequest, request_id, ctx.organization_id)  # scope check
+    return [_task_out(t) for t in dsr_service.list_tasks(db, request_id)]

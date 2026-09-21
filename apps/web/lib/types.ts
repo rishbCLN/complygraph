@@ -470,6 +470,30 @@ export type Incident = {
   timeline: { events?: { at: string; event: string }[] } | null;
 };
 
+export type DsrStoreOutcome = {
+  asset: string;
+  connector_type: string | null;
+  action: string;
+  status: string;
+  records_affected: number | null;
+  fields: { name: string; category: string; classification: string }[];
+  detail: string | null;
+};
+
+export type DsrFulfillment = {
+  request_id: string;
+  request_type: string;
+  action: string;
+  generated_at: string;
+  requester: string;
+  stores_total: number;
+  stores_completed: number;
+  stores_skipped: number;
+  records_affected: number;
+  stores: DsrStoreOutcome[];
+  notice: string;
+};
+
 export type DataRequest = {
   id: string;
   requester_identifier: string;
@@ -480,6 +504,29 @@ export type DataRequest = {
   due_at: string | null;
   completed_at: string | null;
   notes: string | null;
+  fulfillment: DsrFulfillment | null;
+  fulfilled_at: string | null;
+};
+
+export type DsrTask = {
+  id: string;
+  asset_id: string | null;
+  asset_name: string;
+  connector_type: string | null;
+  action: string;
+  status: string;
+  matched_fields: { fields: { name: string; category: string; classification: string }[] } | null;
+  records_affected: number | null;
+  detail: string | null;
+  executed_at: string | null;
+};
+
+export type DsrDiscoveryItem = {
+  asset_id: string;
+  asset_name: string;
+  connector_type: string | null;
+  pii_fields: { name: string; category: string; classification: string }[];
+  row_count: number | null;
 };
 
 export type ProcessingActivity = {
@@ -701,4 +748,75 @@ export type PortfolioRollup = {
   systems_with_failures: number;
   total_regressions: number;
   systems: PortfolioSystem[];
+};
+
+// --- Consent management (feature #8) ---------------------------------------
+export type ConsentPurpose = {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  lawful_basis: string;
+  requires_consent: boolean;
+  is_sensitive: boolean;
+  default_expiry_days: number | null;
+  display_order: number;
+  status: string;
+  processing_activity_id: string | null;
+};
+
+export type ConsentNotice = {
+  id: string;
+  version: number;
+  title: string;
+  body: string;
+  is_current: boolean;
+  published_at: string | null;
+};
+
+export type ConsentRecord = {
+  id: string;
+  purpose_id: string;
+  principal_identifier: string;
+  status: string;
+  method: string;
+  notice_version: number | null;
+  granted_at: string | null;
+  withdrawn_at: string | null;
+  expires_at: string | null;
+  verified: boolean;
+};
+
+export type ConsentEvent = {
+  id: string;
+  purpose_id: string | null;
+  purpose_code: string;
+  purpose_name: string;
+  principal_identifier: string;
+  event_type: string;
+  method: string;
+  source: string;
+  notice_version: number | null;
+  actor: string | null;
+  created_at: string | null;
+};
+
+export type ConsentPurposeSummary = {
+  purpose_id: string;
+  code: string;
+  name: string;
+  requires_consent: boolean;
+  granted: number;
+  withdrawn: number;
+  expired: number;
+};
+
+export type ConsentSummary = {
+  purposes_total: number;
+  active_purposes: number;
+  total_granted: number;
+  total_withdrawn: number;
+  distinct_principals: number;
+  current_notice_version: number | null;
+  by_purpose: ConsentPurposeSummary[];
 };

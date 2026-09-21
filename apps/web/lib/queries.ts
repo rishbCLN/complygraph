@@ -25,9 +25,16 @@ import type {
   ControlMapping,
   ControlMappingGraph,
   ControlMappingRef,
+  ConsentEvent,
+  ConsentNotice,
+  ConsentPurpose,
+  ConsentRecord,
+  ConsentSummary,
   DashboardSummary,
   DataGraph,
   DataPosture,
+  DsrDiscoveryItem,
+  DsrTask,
   DataRequest,
   Evidence,
   Finding,
@@ -485,6 +492,46 @@ export function useDataRequest(id: string) {
   });
 }
 
+export function useDsrTasks(id: string) {
+  return useQuery({
+    queryKey: ["data-request", id, "tasks"],
+    queryFn: () => apiFetch<DsrTask[]>(`/data-requests/${id}/tasks`),
+    enabled: !!id,
+  });
+}
+
+export function useDsrDiscovery(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["data-request", id, "discover"],
+    queryFn: () => apiFetch<DsrDiscoveryItem[]>(`/data-requests/${id}/discover`),
+    enabled: !!id && enabled,
+  });
+}
+
+export function useVerifyDsr() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<DataRequest>(`/data-requests/${id}/verify`, { method: "POST" }),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: ["data-request", id] });
+      qc.invalidateQueries({ queryKey: ["data-requests"] });
+    },
+  });
+}
+
+export function useFulfillDsr() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<DataRequest>(`/data-requests/${id}/fulfill`, { method: "POST" }),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: ["data-request", id] });
+      qc.invalidateQueries({ queryKey: ["data-requests"] });
+    },
+  });
+}
+
 export function useProcessingActivities() {
   return useQuery({
     queryKey: ["processing-activities"],
@@ -766,6 +813,134 @@ export function useAnalyzeAllSystemsMutation() {
       apiFetch<PortfolioRollup>("/systems/analyze-all", { method: "POST" }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ai-systems"] });
+    },
+  });
+}
+
+// --- Consent management (feature #8) ---------------------------------------
+export function useConsentPurposes(activeOnly = false) {
+  return useQuery({
+    queryKey: ["consent-purposes", activeOnly],
+    queryFn: () =>
+      apiFetch<ConsentPurpose[]>(`/consent/purposes${activeOnly ? "?active_only=true" : ""}`),
+  });
+}
+
+export function useConsentSummary() {
+  return useQuery({
+    queryKey: ["consent-summary"],
+    queryFn: () => apiFetch<ConsentSummary>("/consent/summary"),
+  });
+}
+
+export function useConsentNotices() {
+  return useQuery({
+    queryKey: ["consent-notices"],
+    queryFn: () => apiFetch<ConsentNotice[]>("/consent/notices"),
+  });
+}
+
+export function useConsentRecords(params: { purpose_id?: string; status?: string } = {}) {
+  const qs = new URLSearchParams();
+  if (params.purpose_id) qs.set("purpose_id", params.purpose_id);
+  if (params.status) qs.set("status", params.status);
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return useQuery({
+    queryKey: ["consent-records", params],
+    queryFn: () => apiFetch<ConsentRecord[]>(`/consent/records${suffix}`),
+  });
+}
+
+export function useConsentEvents(params: { principal?: string; purpose_id?: string } = {}) {
+  const qs = new URLSearchParams();
+  if (params.principal) qs.set("principal", params.principal);
+  if (params.purpose_id) qs.set("purpose_id", params.purpose_id);
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return useQuery({
+    queryKey: ["consent-events", params],
+    queryFn: () => apiFetch<ConsentEvent[]>(`/consent/events${suffix}`),
+  });
+}
+
+export function useCreatePurpose() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiFetch<ConsentPurpose>("/consent/purposes", { method: "POST", body }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["consent-purposes"] });
+      qc.invalidateQueries({ queryKey: ["consent-summary"] });
+    },
+  });
+}
+
+export function useUpdatePurpose() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: Record<string, unknown> }) =>
+      apiFetch<ConsentPurpose>(`/consent/purposes/${id}`, { method: "PATCH", body }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["consent-purposes"] });
+    },
+  });
+}
+
+export function useArchivePurpose() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<ConsentPurpose>(`/consent/purposes/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["consent-purposes"] });
+      qc.invalidateQueries({ queryKey: ["consent-summary"] });
+    },
+  });
+}
+
+export function useCreateNotice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { title: string; body: string; publish: boolean }) =>
+      apiFetch<ConsentNotice>("/consent/notices", { method: "POST", body }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["consent-notices"] });
+      qc.invalidateQueries({ queryKey: ["consent-summary"] });
+    },
+  });
+}
+
+export function usePublishNotice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<ConsentNotice>(`/consent/notices/${id}/publish`, { method: "POST" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["consent-notices"] });
+      qc.invalidateQueries({ queryKey: ["consent-summary"] });
+    },
+  });
+}
+
+export function useConsentAction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      action,
+      purpose_id,
+      principal_identifier,
+    }: {
+      action: "grant" | "withdraw";
+      purpose_id: string;
+      principal_identifier: string;
+    }) =>
+      apiFetch<ConsentRecord>(`/consent/${action}`, {
+        method: "POST",
+        body: { purpose_id, principal_identifier },
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["consent-records"] });
+      qc.invalidateQueries({ queryKey: ["consent-events"] });
+      qc.invalidateQueries({ queryKey: ["consent-summary"] });
     },
   });
 }

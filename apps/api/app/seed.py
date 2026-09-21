@@ -40,6 +40,7 @@ from app.core.enums import (
 from app.models.ai_systems import AISystem
 from app.models.evidence import ControlEvidence, Evidence
 from app.models.identity import Membership, Organization, User
+from app.models.consent import ConsentNotice, ConsentPurpose
 from app.models.inventory import Connector, DataAsset, DataFlow, ProcessingActivity, Vendor
 from app.models.operations import BreachIncident, DataSubjectRequest
 from app.models.regulatory import Control, Obligation, Regulation
@@ -937,6 +938,103 @@ def seed_findings(db: Session, org: Organization) -> int:
     return count
 
 
+def seed_consent(db: Session, org: Organization) -> None:
+    """Seed a purpose catalogue, a published notice, and a few consent records."""
+    from app.services import consent_service
+
+    existing = db.scalar(
+        select(ConsentPurpose).where(ConsentPurpose.organization_id == org.id)
+    )
+    if existing is not None:
+        return
+
+    # Link purposes to the seeded processing activities where names match.
+    account_activity = db.scalar(
+        select(ProcessingActivity).where(
+            ProcessingActivity.organization_id == org.id,
+            ProcessingActivity.name == "Customer account management",
+        )
+    )
+    marketing_activity = db.scalar(
+        select(ProcessingActivity).where(
+            ProcessingActivity.organization_id == org.id,
+            ProcessingActivity.name == "Marketing analytics export",
+        )
+    )
+
+    purposes = [
+        {
+            "code": "account",
+            "name": "Account management",
+            "description": "Create and support your AsterLane account and orders.",
+            "lawful_basis": "Contract",
+            "requires_consent": False,  # necessary for the service -> shown, not withdrawable
+            "display_order": 10,
+            "processing_activity_id": account_activity.id if account_activity else None,
+        },
+        {
+            "code": "marketing",
+            "name": "Marketing communications",
+            "description": "Send you product news, offers and campaign emails.",
+            "lawful_basis": "Consent",
+            "requires_consent": True,
+            "default_expiry_days": 365,
+            "display_order": 20,
+            "processing_activity_id": marketing_activity.id if marketing_activity else None,
+        },
+        {
+            "code": "analytics",
+            "name": "Usage analytics",
+            "description": "Analyse how you use the product to improve it.",
+            "lawful_basis": "Consent",
+            "requires_consent": True,
+            "display_order": 30,
+        },
+        {
+            "code": "health-personalisation",
+            "name": "Health-based personalisation",
+            "description": "Tailor recommendations using health-related information.",
+            "lawful_basis": "Consent",
+            "requires_consent": True,
+            "is_sensitive": True,
+            "display_order": 40,
+        },
+    ]
+    created: dict[str, ConsentPurpose] = {}
+    for spec in purposes:
+        p = consent_service.create_purpose(db, org.id, spec)
+        created[spec["code"]] = p
+
+    # Publish an initial notice (version 1).
+    consent_service.create_notice(
+        db,
+        org.id,
+        {
+            "title": "AsterLane Privacy Notice",
+            "body": (
+                "AsterLane processes your personal data to provide our services, and (with your "
+                "consent) for marketing, analytics and personalisation. You can withdraw consent at "
+                "any time from this Privacy Center. For access, correction or erasure of your data, "
+                "submit a request below. This notice is provided for transparency and does not "
+                "constitute a determination of your legal rights."
+            ),
+        },
+        publish=True,
+    )
+
+    # A couple of demo consent records so the ledger is not empty.
+    consent_service.record_consent(
+        db, org.id, purpose_id=created["marketing"].id, principal="[email protected]", verified=True
+    )
+    consent_service.record_consent(
+        db, org.id, purpose_id=created["analytics"].id, principal="[email protected]", verified=True
+    )
+    consent_service.withdraw_consent(
+        db, org.id, purpose_id=created["marketing"].id, principal="[email protected]"
+    )
+    db.flush()
+
+
 def run() -> None:
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
@@ -956,6 +1054,8 @@ def run() -> None:
         seed_ai_systems(db, org)
         db.commit()
         seed_evidence_and_ops(db, org)
+        db.commit()
+        seed_consent(db, org)
         db.commit()
         findings = seed_findings(db, org)
         print(f"Seed complete. Organization: {org.name}")

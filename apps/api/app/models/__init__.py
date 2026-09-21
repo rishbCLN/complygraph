@@ -8,6 +8,13 @@ from app.models.ai_systems import (
 )
 from app.models.approval import ApprovalRequest
 from app.models.campaign import AuditCampaign, CampaignResult
+from app.models.consent import (
+    ConsentEvent,
+    ConsentNotice,
+    ConsentPurpose,
+    ConsentRecord,
+)
+from app.models.dsr import DSRTask
 from app.models.evidence import ControlEvidence, Evidence
 from app.models.findings import Finding, RemediationTask, Scan, ScanResult
 from app.models.identity import (
@@ -50,6 +57,10 @@ __all__ = [
     "AuditEvent",
     "BreachIncident",
     "ClassificationOverride",
+    "ConsentEvent",
+    "ConsentNotice",
+    "ConsentPurpose",
+    "ConsentRecord",
     "Connector",
     "Control",
     "ControlAssessment",
@@ -59,6 +70,7 @@ __all__ = [
     "DataAsset",
     "DataFlow",
     "DataSubjectRequest",
+    "DSRTask",
     "Evidence",
     "Finding",
     "Membership",

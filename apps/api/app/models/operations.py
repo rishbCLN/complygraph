@@ -30,6 +30,11 @@ class DataSubjectRequest(Base, TimestampMixin):
     verification_status: Mapped[str] = mapped_column(String(40), default="PENDING")
     notes: Mapped[str | None] = mapped_column(Text)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Fulfillment engine (feature #7): the assembled data package (for ACCESS/
+    # PORTABILITY) or the erasure manifest (for ERASURE). Metadata + per-store
+    # outcomes only; never raw personal-data values.
+    fulfillment: Mapped[dict | None] = mapped_column(JSONB)
+    fulfilled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class BreachIncident(Base, TimestampMixin):
