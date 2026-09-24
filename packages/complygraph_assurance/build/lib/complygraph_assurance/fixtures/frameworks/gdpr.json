@@ -1,0 +1,118 @@
+{
+  "framework": "gdpr",
+  "name": "EU General Data Protection Regulation (2016/679)",
+  "jurisdiction": "European Union",
+  "source_document": "Regulation (EU) 2016/679 (GDPR)",
+  "source_url": "https://eur-lex.europa.eu/eli/reg/2016/679/oj",
+  "required_severity": "HIGH",
+  "controls": [
+    {
+      "code": "GDPR-ART13-NOTICE",
+      "title": "Information to be provided (privacy notice)",
+      "description": "Provide data subjects with transparent information about processing purposes at collection.",
+      "category": "TRANSPARENCY",
+      "evaluator_key": "notice",
+      "severity_default": "HIGH",
+      "legal_reference": "GDPR Arts. 12-14",
+      "source_section": "Chapter III, Section 1",
+      "effective_from": "2018-05-25T00:00:00Z",
+      "applies_to": null
+    },
+    {
+      "code": "GDPR-ART6-CONSENT",
+      "title": "Lawfulness and consent",
+      "description": "Establish and record a lawful basis; where consent is used it must be freely given and recorded.",
+      "category": "CONSENT",
+      "evaluator_key": "consent",
+      "severity_default": "HIGH",
+      "legal_reference": "GDPR Arts. 6-7",
+      "source_section": "Chapter II",
+      "effective_from": "2018-05-25T00:00:00Z",
+      "applies_to": null
+    },
+    {
+      "code": "GDPR-ART7-WITHDRAW",
+      "title": "Right to withdraw consent",
+      "description": "It must be as easy to withdraw consent as to give it.",
+      "category": "CONSENT",
+      "evaluator_key": "consent_withdrawal",
+      "severity_default": "MEDIUM",
+      "legal_reference": "GDPR Art. 7(3)",
+      "source_section": "Chapter II",
+      "effective_from": "2018-05-25T00:00:00Z",
+      "applies_to": null
+    },
+    {
+      "code": "GDPR-ART15-RIGHTS",
+      "title": "Data subject rights (access, rectification, erasure)",
+      "description": "Operate a mechanism to fulfil access, rectification, erasure and portability requests.",
+      "category": "RIGHTS",
+      "evaluator_key": "rights",
+      "severity_default": "HIGH",
+      "legal_reference": "GDPR Arts. 15-20",
+      "source_section": "Chapter III, Sections 2-3",
+      "effective_from": "2018-05-25T00:00:00Z",
+      "applies_to": null
+    },
+    {
+      "code": "GDPR-ART32-SECURITY",
+      "title": "Security of processing",
+      "description": "Implement appropriate technical and organisational measures (encryption, access control).",
+      "category": "SECURITY",
+      "evaluator_key": "security",
+      "severity_default": "HIGH",
+      "legal_reference": "GDPR Art. 32",
+      "source_section": "Chapter IV, Section 2",
+      "effective_from": "2018-05-25T00:00:00Z",
+      "applies_to": null
+    },
+    {
+      "code": "GDPR-ART33-BREACH",
+      "title": "Personal data breach notification",
+      "description": "Detect, document, and notify personal data breaches to the supervisory authority within 72 hours.",
+      "category": "BREACH",
+      "evaluator_key": "breach",
+      "severity_default": "HIGH",
+      "legal_reference": "GDPR Arts. 33-34",
+      "source_section": "Chapter IV, Section 2",
+      "effective_from": "2018-05-25T00:00:00Z",
+      "applies_to": null
+    },
+    {
+      "code": "GDPR-ART5-RETENTION",
+      "title": "Storage limitation and retention",
+      "description": "Personal data is kept no longer than necessary for the purposes for which it is processed.",
+      "category": "RETENTION",
+      "evaluator_key": "retention",
+      "severity_default": "HIGH",
+      "legal_reference": "GDPR Art. 5(1)(e)",
+      "source_section": "Chapter II",
+      "effective_from": "2018-05-25T00:00:00Z",
+      "applies_to": null
+    },
+    {
+      "code": "GDPR-ART28-PROCESSOR",
+      "title": "Processor governance",
+      "description": "Engage processors only under a binding contract with sufficient guarantees.",
+      "category": "VENDOR",
+      "evaluator_key": "vendor",
+      "severity_default": "HIGH",
+      "legal_reference": "GDPR Art. 28",
+      "source_section": "Chapter IV, Section 1",
+      "effective_from": "2018-05-25T00:00:00Z",
+      "applies_to": null
+    },
+    {
+      "code": "GDPR-ART44-TRANSFER",
+      "title": "Cross-border transfer governance",
+      "description": "Transfers of personal data to third countries have an adequate legal transfer mechanism.",
+      "category": "CROSSBORDER",
+      "evaluator_key": "crossborder",
+      "severity_default": "MEDIUM",
+      "legal_reference": "GDPR Arts. 44-49",
+      "source_section": "Chapter V",
+      "effective_from": "2018-05-25T00:00:00Z",
+      "applies_to": null
+    }
+  ]
+}

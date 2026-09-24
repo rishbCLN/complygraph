@@ -1,0 +1,58 @@
+{
+  "target_ref": "reference-strong",
+  "label": "Reference strong - a well-governed data fiduciary (compliant baseline)",
+  "organization": "Reference Strong Pvt. Ltd.",
+  "assessment_date": "2026-09-19T00:00:00Z",
+  "evidence_policy": "all_fresh",
+  "personal_data_assets": [
+    {
+      "id": "asset-customers",
+      "name": "public.customers",
+      "display_name": "Customer database",
+      "classification": "PERSONAL_DATA",
+      "sensitivity_level": 3,
+      "row_count": 42000,
+      "asset_type": "TABLE"
+    }
+  ],
+  "extra_assets": [
+    {
+      "id": "asset-app-logs",
+      "name": "app.request_logs",
+      "display_name": "Application logs",
+      "classification": "OPERATIONAL_METADATA",
+      "sensitivity_level": 1,
+      "row_count": 900000,
+      "asset_type": "TABLE"
+    }
+  ],
+  "vendors": [
+    {
+      "id": "vendor-analytics",
+      "name": "PulseMetrics Analytics",
+      "contract_status": "SIGNED",
+      "country": "Singapore"
+    }
+  ],
+  "flows": [
+    {
+      "id": "flow-analytics",
+      "vendor_id": "vendor-analytics",
+      "flow_type": "THIRD_PARTY",
+      "contains_personal_data": true,
+      "cross_border": true
+    }
+  ],
+  "processing_activities": [
+    {
+      "id": "pa-accounts",
+      "purpose": "Customer account management",
+      "has_notice": true,
+      "has_consent": true,
+      "retention_period_days": 730
+    }
+  ],
+  "dsr_configured": true,
+  "breach_workflow_configured": true,
+  "flags": {}
+}

@@ -1,0 +1,50 @@
+{
+  "target_ref": "reference-weak",
+  "label": "Reference weak - a materially non-compliant data fiduciary (fails closed)",
+  "organization": "Reference Weak Pvt. Ltd.",
+  "assessment_date": "2026-09-19T00:00:00Z",
+  "evidence_policy": "none",
+  "personal_data_assets": [
+    {
+      "id": "asset-customers",
+      "name": "public.customers",
+      "display_name": "Customer database",
+      "classification": "SENSITIVE_PERSONAL_DATA",
+      "sensitivity_level": 5,
+      "row_count": 2500000,
+      "asset_type": "TABLE"
+    }
+  ],
+  "extra_assets": [],
+  "vendors": [
+    {
+      "id": "vendor-analytics",
+      "name": "PulseMetrics Analytics",
+      "contract_status": "MISSING",
+      "country": "Singapore"
+    }
+  ],
+  "flows": [
+    {
+      "id": "flow-analytics",
+      "vendor_id": "vendor-analytics",
+      "flow_type": "THIRD_PARTY",
+      "contains_personal_data": true,
+      "cross_border": true
+    }
+  ],
+  "processing_activities": [
+    {
+      "id": "pa-marketing",
+      "purpose": "Marketing analytics export",
+      "has_notice": false,
+      "has_consent": false,
+      "retention_period_days": null
+    }
+  ],
+  "dsr_configured": false,
+  "breach_workflow_configured": false,
+  "flags": {
+    "deletion_last_status": "FAILED"
+  }
+}

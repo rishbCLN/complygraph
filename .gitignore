@@ -18,6 +18,13 @@ htmlcov/
 .coverage
 coverage.xml
 
+# SQLite databases (runtime; never commit)
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
 # Node / Next.js
 node_modules/
 .next/

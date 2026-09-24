@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "complygraph-assurance"
+version = "0.1.0"
+description = "Infra-free Assurance Contract v1 export for the ComplyGraph compliance pillar."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+
+# Import-light by design: the export path must run WITHOUT Postgres/Redis/web
+# framework. The ONLY hard runtime dependency is the shared contract validator.
+# ComplyGraph's real deterministic control engine (app.controls.*) is reused at
+# runtime and is itself standard-library-only; it is located relative to this
+# package inside the ComplyGraph repo (see complygraph_assurance.engine_bridge).
+dependencies = [
+    "assurance-contract>=1.0.0,<2.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+complygraph-assurance = "complygraph_assurance.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+complygraph_assurance = [
+    "py.typed",
+    "fixtures/frameworks/*.json",
+    "fixtures/targets/*.json",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
